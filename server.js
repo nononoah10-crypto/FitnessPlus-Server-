@@ -290,6 +290,33 @@ async function handler(req,res){try{
   const level=Number(data.level),target=q('SELECT * FROM users WHERE id=?',String(data.userId||''));if(!target||!Number.isSafeInteger(level)||level<1||level>10000)return error(res,400,'Ungültiges Level');
   run('UPDATE users SET xp=? WHERE id=?',(level-1)*3,target.id);audit(u.id,target.id,'set_level',level);return json(res,200,{ok:true})
  }
+ if(req.method==='POST'&&url.pathname==='/api/admin/delete-user'){
+  const target=q('SELECT id,username,role FROM users WHERE id=?',String(data.userId||''));
+  if(!target)return error(res,404,'Account nicht gefunden');
+  if(target.role==='admin')return error(res,403,'Administratorkonten können nicht gelöscht werden');
+  if(data.confirmName!==target.username)return error(res,400,'Bestätigung stimmt nicht mit dem Nutzernamen überein');
+  db.exec('BEGIN IMMEDIATE');
+  try{
+   // Remove non-cascading references before deleting the account.
+   run('DELETE FROM game_gift_codes WHERE sender_id=? OR recipient_id=? OR redeemed_by=?',target.id,target.id,target.id);
+   run('DELETE FROM direct_gifts WHERE sender_id=? OR recipient_id=?',target.id,target.id);
+   run('DELETE FROM gifts WHERE recipient_id=? OR admin_id=?',target.id,target.id);
+   run('DELETE FROM game_exercises WHERE run_id IN (SELECT id FROM game_runs WHERE user_id=?)',target.id);
+   run('DELETE FROM game_runs WHERE user_id=?',target.id);
+   run('DELETE FROM game_chests WHERE user_id=?',target.id);
+   run('DELETE FROM game_boosters WHERE user_id=?',target.id);
+   run('DELETE FROM game_purchases WHERE user_id=?',target.id);
+   run('DELETE FROM game_daily WHERE user_id=?',target.id);
+   run('DELETE FROM game_wheel WHERE user_id=?',target.id);
+   run('DELETE FROM game_season_claims WHERE user_id=?',target.id);
+   run('DELETE FROM game_event_claims WHERE user_id=?',target.id);
+   run('DELETE FROM audit WHERE actor=? OR subject=?',target.id,target.id);
+   // sessions, friendships and cloud_state are removed by foreign-key CASCADE.
+   run('DELETE FROM users WHERE id=?',target.id);
+   db.exec('COMMIT');
+  }catch(err){db.exec('ROLLBACK');throw err}
+  return json(res,200,{ok:true});
+ }
  if(req.method==='POST'&&url.pathname==='/api/admin/reset-player'){
   const target=q('SELECT * FROM users WHERE id=?',String(data.userId||''));
   if(!target)return error(res,404,'Spieler nicht gefunden');
