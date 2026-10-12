@@ -24,6 +24,7 @@ db.exec(`CREATE TABLE IF NOT EXISTS game_wheel (user_id TEXT NOT NULL REFERENCES
 CREATE TABLE IF NOT EXISTS game_season_claims (user_id TEXT NOT NULL REFERENCES users(id), season_id TEXT NOT NULL, tier INTEGER NOT NULL, diamonds INTEGER NOT NULL, PRIMARY KEY(user_id,season_id,tier));
 CREATE TABLE IF NOT EXISTS game_event_claims (user_id TEXT NOT NULL REFERENCES users(id), event_id TEXT NOT NULL, diamonds INTEGER NOT NULL, PRIMARY KEY(user_id,event_id));
 CREATE TABLE IF NOT EXISTS game_gift_codes (id TEXT PRIMARY KEY, code_hash TEXT NOT NULL UNIQUE, sender_id TEXT NOT NULL REFERENCES users(id), recipient_id TEXT REFERENCES users(id), item TEXT NOT NULL, created_at INTEGER NOT NULL, redeemed_at INTEGER, redeemed_by TEXT REFERENCES users(id));`);
+db.exec(`CREATE TABLE IF NOT EXISTS direct_gifts (id TEXT PRIMARY KEY, sender_id TEXT NOT NULL REFERENCES users(id), recipient_id TEXT NOT NULL REFERENCES users(id), item TEXT NOT NULL, created_at INTEGER NOT NULL, claimed_at INTEGER);`);
 function currentEvent(){return JSON.parse(q('SELECT value FROM settings WHERE key=?','events')?.value||'{}')}
 function eventId(e){return String(e.updatedAt||0)}
 function seasonTiers(){return [{at:3,diamonds:10},{at:10,diamonds:25},{at:25,diamonds:60},{at:50,diamonds:120}]}
@@ -175,6 +176,39 @@ async function handler(req,res){try{
    run('UPDATE users SET diamonds=diamonds+? WHERE id=?',amount,u.id);db.exec('COMMIT');return json(res,200,{ok:true,diamonds:amount,user:publicUser(q('SELECT * FROM users WHERE id=?',u.id))});
   }catch(err){db.exec('ROLLBACK');throw err}
  }
+ if(req.method==='POST'&&url.pathname==='/api/friends/add-name'){
+  const name=String(data.name||'').trim();if(!validName(name))return error(res,400,'Bitte Benutzernamen eingeben');
+  const friend=q('SELECT id,username FROM users WHERE username=?',name);
+  if(!friend||friend.id===u.id)return error(res,404,'Benutzer nicht gefunden');
+  const [a,b]=[u.id,friend.id].sort();run('INSERT OR IGNORE INTO friendship(a,b,created_at) VALUES(?,?,?)',a,b,Date.now());
+  return json(res,200,{ok:true,friend:{id:friend.id,name:friend.username}});
+ }
+ if(req.method==='GET'&&url.pathname==='/api/gifts/inbox'){
+  return json(res,200,{gifts:all('SELECT g.id,g.item,g.created_at AS createdAt,u.username AS sender FROM direct_gifts g JOIN users u ON u.id=g.sender_id WHERE g.recipient_id=? AND g.claimed_at IS NULL ORDER BY g.created_at DESC LIMIT 50',u.id)});
+ }
+ if(req.method==='POST'&&url.pathname==='/api/gifts/send'){
+  const item=String(data.item||''),b=boostCatalog[item],friendId=String(data.friendId||'');
+  if(!b)return error(res,400,'Unbekannter Booster');
+  if(friendId===u.id||!q('SELECT 1 FROM friendship WHERE (a=? AND b=?) OR (a=? AND b=?)',u.id,friendId,friendId,u.id))return error(res,403,'Nur an Freunde senden');
+  db.exec('BEGIN IMMEDIATE');try{
+   if(!run('UPDATE users SET diamonds=diamonds-? WHERE id=? AND diamonds>=?',b.price,u.id,b.price).changes){db.exec('ROLLBACK');return error(res,400,'Nicht genug Diamanten')}
+   run('INSERT INTO direct_gifts(id,sender_id,recipient_id,item,created_at) VALUES(?,?,?,?,?)',uid(),u.id,friendId,item,Date.now());db.exec('COMMIT');
+   return json(res,200,{ok:true,user:publicUser(q('SELECT * FROM users WHERE id=?',u.id))});
+  }catch(err){db.exec('ROLLBACK');throw err}
+ }
+ if(req.method==='POST'&&url.pathname==='/api/gifts/claim'){
+  const giftId=String(data.giftId||'');db.exec('BEGIN IMMEDIATE');try{
+   const gift=q('SELECT * FROM direct_gifts WHERE id=? AND recipient_id=? AND claimed_at IS NULL',giftId,u.id);
+   if(!gift){db.exec('ROLLBACK');return error(res,404,'Geschenk nicht verfügbar')}
+   const active=q('SELECT uses FROM game_boosters WHERE user_id=?',u.id);
+   if(active?.uses>0){db.exec('ROLLBACK');return error(res,409,'Bitte zuerst deinen aktiven Booster aufbrauchen')}
+   const b=boostCatalog[gift.item];if(!b){db.exec('ROLLBACK');return error(res,400,'Produkt nicht verfügbar')}
+   run('UPDATE game_boosters SET multiplier=?,uses=? WHERE user_id=?',b.multiplier,b.uses,u.id);
+   run('INSERT OR IGNORE INTO game_boosters(user_id,multiplier,uses) VALUES(?,?,?)',u.id,b.multiplier,b.uses);
+   run('UPDATE direct_gifts SET claimed_at=? WHERE id=? AND claimed_at IS NULL',Date.now(),giftId);
+   db.exec('COMMIT');return json(res,200,{ok:true,booster:{multiplier:b.multiplier,uses:b.uses}});
+  }catch(err){db.exec('ROLLBACK');throw err}
+ }
  if(req.method==='POST'&&url.pathname==='/api/game/gift/create'){
   const item=String(data.item||''),boost=boostCatalog[item],recipientCode=String(data.friendCode||'').trim();
   if(!boost)return error(res,400,'Unbekannter Geschenk-Booster');
@@ -222,6 +256,31 @@ async function handler(req,res){try{
  if(req.method==='POST'&&url.pathname==='/api/admin/level'){
   const level=Number(data.level),target=q('SELECT * FROM users WHERE id=?',String(data.userId||''));if(!target||!Number.isSafeInteger(level)||level<1||level>10000)return error(res,400,'Ungültiges Level');
   run('UPDATE users SET xp=? WHERE id=?',(level-1)*3,target.id);audit(u.id,target.id,'set_level',level);return json(res,200,{ok:true})
+ }
+ if(req.method==='POST'&&url.pathname==='/api/admin/reset-player'){
+  const target=q('SELECT * FROM users WHERE id=?',String(data.userId||''));
+  if(!target)return error(res,404,'Spieler nicht gefunden');
+  if(target.role==='admin')return error(res,403,'Administratorkonten können nicht zurückgesetzt werden');
+  if(data.confirmName!==target.username)return error(res,400,'Bestätigung stimmt nicht mit dem Spielernamen überein');
+  // Reset progress and economy, preserving login, friend code and friendships.
+  // Run atomically so partial resets cannot occur.
+  db.exec('BEGIN IMMEDIATE');try{
+   run('DELETE FROM game_gift_codes WHERE sender_id=? OR recipient_id=?',target.id,target.id);
+   run('DELETE FROM game_season_claims WHERE user_id=?',target.id);
+   run('DELETE FROM game_event_claims WHERE user_id=?',target.id);
+   run('DELETE FROM game_wheel WHERE user_id=?',target.id);
+   run('DELETE FROM game_daily WHERE user_id=?',target.id);
+   run('DELETE FROM game_purchases WHERE user_id=?',target.id);
+   run('DELETE FROM game_boosters WHERE user_id=?',target.id);
+   run('DELETE FROM game_chests WHERE user_id=?',target.id);
+   run('DELETE FROM game_exercises WHERE run_id IN (SELECT id FROM game_runs WHERE user_id=?)',target.id);
+   run('DELETE FROM game_runs WHERE user_id=?',target.id);
+   run('DELETE FROM cloud_state WHERE user_id=?',target.id);
+   run('UPDATE users SET xp=0,diamonds=0 WHERE id=?',target.id);
+   audit(u.id,target.id,'reset_player','Spielstand und Guthaben zurückgesetzt');
+   db.exec('COMMIT');
+  }catch(err){db.exec('ROLLBACK');throw err}
+  return json(res,200,{ok:true});
  }
  if(req.method==='POST'&&url.pathname==='/api/admin/announcement'){
   const title=String(data.title||'').trim(),message=String(data.message||'').trim();if(title.length>80||message.length>1000)return error(res,400,'Text zu lang');
