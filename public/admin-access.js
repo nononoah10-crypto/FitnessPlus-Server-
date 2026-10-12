@@ -12,10 +12,39 @@ let configured=false,working=false,pinCount=0,pinLast=0;
 const escapeHtml=v=>String(v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 async function api(endpoint,method='GET',data){const r=await fetch('/api/admin-code/'+endpoint,{method,credentials:'same-origin',headers:data?{'Content-Type':'application/json'}:{},body:data?JSON.stringify(data):undefined});const x=await r.json().catch(()=>({}));if(!r.ok)throw Error(x.error||'Serverfehler');return x}
 function msg(text){const e=gate.querySelector('.fpGateMsg');if(e)e.textContent=text||''}
-function renderForm(){gate.classList.remove('fpPanelMode');gate.innerHTML=`<section class="fpGateCard"><div class="fpGateRow"><h2>🔐 FitnessPlus Admin</h2><button type="button" class="fpGateLight" id="fpGateClose">Schließen</button></div><p>${configured?'Deinen persönlichen Admin-Code eingeben.':'Lege deinen Admin-Code einmalig direkt hier fest. Dafür bestätigst du einmal dein vorhandenes Server-Admin-Konto.'}</p><form id="fpGateForm">${configured?'':`<label for="fpGateName">Vorhandener Admin-Benutzername</label><input id="fpGateName" autocomplete="username" required><label for="fpGatePass">Vorhandenes Admin-Passwort (nur einmalig)</label><input id="fpGatePass" type="password" autocomplete="current-password" required>`}<label for="fpGateCode">${configured?'Admin-Code':'Neuen Admin-Code festlegen (6–12 Ziffern)'}</label><input id="fpGateCode" type="password" inputmode="numeric" pattern="[0-9]{6,12}" minlength="6" maxlength="12" autocomplete="off" required>${configured?'':`<label for="fpGateRepeat">Code wiederholen</label><input id="fpGateRepeat" type="password" inputmode="numeric" pattern="[0-9]{6,12}" minlength="6" maxlength="12" autocomplete="off" required>`}<button class="fpGateSubmit" type="submit">${configured?'Verwaltung öffnen':'Code festlegen und öffnen'}</button><div class="fpGateMsg" role="status"></div></form></section>`;
+function renderForm(){
+ gate.classList.remove('fpPanelMode');
+ gate.innerHTML=`<section class="fpGateCard"><div class="fpGateRow"><h2>🔐 FitnessPlus Admin</h2><button type="button" class="fpGateLight" id="fpGateClose">Schließen</button></div><p>${configured?'Deinen persönlichen Code eingeben.':'Lege jetzt deinen persönlichen Admin-Code fest.'}</p><form id="fpGateForm"><label for="fpGateCode">${configured?'Code eingeben':'Code festlegen (6–12 Ziffern)'}</label><input id="fpGateCode" type="password" inputmode="numeric" pattern="[0-9]{6,12}" minlength="6" maxlength="12" autocomplete="off" required>${configured?'':`<label for="fpGateRepeat">Code wiederholen</label><input id="fpGateRepeat" type="password" inputmode="numeric" pattern="[0-9]{6,12}" minlength="6" maxlength="12" autocomplete="off" required`}<div id="fpFirstVerify" style="display:none"><p>Zur sicheren Ersteinrichtung bestätige bitte einmal dein bereits vorhandenes Admin-Konto. Danach ist nur noch dein Code nötig.</p><label for="fpGateName">Admin-Benutzername</label><input id="fpGateName" autocomplete="username"><label for="fpGatePass">Admin-Passwort</label><input id="fpGatePass" type="password" autocomplete="current-password"></div><button class="fpGateSubmit" type="submit">${configured?'Verwaltung öffnen':'Code speichern und öffnen'}</button><div class="fpGateMsg" role="status"></div></form></section>`;
  gate.querySelector('#fpGateClose').onclick=close;
- gate.querySelector('#fpGateForm').onsubmit=async e=>{e.preventDefault();if(working)return;const code=gate.querySelector('#fpGateCode').value;if(!/^\d{6,12}$/.test(code)){msg('Bitte 6 bis 12 Ziffern eingeben.');return}if(!configured&&code!==gate.querySelector('#fpGateRepeat').value){msg('Die Codes stimmen nicht überein.');return}working=true;msg('Verbindung wird geprüft …');try{if(configured){await api('login','POST',{code})}else{await api('setup','POST',{name:gate.querySelector('#fpGateName').value,password:gate.querySelector('#fpGatePass').value,code});configured=true}showPanel()}catch(err){msg(err.message);if(err.message.includes('bereits eingerichtet')){configured=true;renderForm()}}finally{working=false}};
- gate.querySelector('#fpGateCode')?.focus();}
+ gate.querySelector('#fpGateForm').onsubmit=async e=>{
+  e.preventDefault();if(working)return;
+  const code=gate.querySelector('#fpGateCode').value;
+  if(!/^[0-9]{6,12}$/.test(code)){msg('Bitte 6 bis 12 Ziffern eingeben.');return}
+  if(!configured&&code!==gate.querySelector('#fpGateRepeat').value){msg('Die Codes stimmen nicht überein.');return}
+  working=true;msg('Verbindung wird geprüft …');
+  try{
+   if(configured){await api('login','POST',{code})}
+   else{
+    const verify=gate.querySelector('#fpFirstVerify');
+    const payload={code};
+    if(verify?.style.display!=='none'){
+     payload.name=gate.querySelector('#fpGateName').value;
+     payload.password=gate.querySelector('#fpGatePass').value;
+    }
+    await api('setup','POST',payload);configured=true;
+   }
+   showPanel();
+  }catch(err){
+   if(!configured&&err.message.includes('Admin-Konto konnte nicht bestätigt werden')){
+    gate.querySelector('#fpFirstVerify').style.display='block';
+    msg('Für die erste Einrichtung ist einmalig die Bestätigung deines Admin-Kontos erforderlich.');
+    gate.querySelector('#fpGateName').focus();
+   }else if(err.message.includes('bereits eingerichtet')){configured=true;renderForm()}
+   else{msg(err.message)}
+  }finally{working=false}
+ };
+ gate.querySelector('#fpGateCode')?.focus();
+}
 function showPanel(){gate.classList.add('fpPanelMode');gate.innerHTML=`<div class="fpPanelHeader"><strong>🔐 FitnessPlus Verwaltung</strong><button type="button" id="fpChangeCode" class="fpGateLight">Code ändern</button><button type="button" id="fpGateLock">Schließen</button></div><iframe src="/admin-control.html" title="FitnessPlus Serververwaltung"></iframe>`;gate.querySelector('#fpGateLock').onclick=async()=>{try{await fetch('/api/logout',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:'{}'})}catch(_){}close()};gate.querySelector('#fpChangeCode').onclick=renderChange;}
 function renderChange(){gate.classList.remove('fpPanelMode');gate.innerHTML=`<section class="fpGateCard"><div class="fpGateRow"><h2>Code ändern</h2><button id="fpChangeCancel" class="fpGateLight">Zurück</button></div><form id="fpChangeForm"><label>Alter Code</label><input id="fpOld" type="password" inputmode="numeric" required><label>Neuer Code (6–12 Ziffern)</label><input id="fpNext" type="password" inputmode="numeric" pattern="[0-9]{6,12}" required><label>Neuen Code wiederholen</label><input id="fpRepeat" type="password" inputmode="numeric" required><button type="submit" class="fpGateSubmit">Code speichern</button><div class="fpGateMsg" role="status"></div></form></section>`;gate.querySelector('#fpChangeCancel').onclick=showPanel;gate.querySelector('#fpChangeForm').onsubmit=async e=>{e.preventDefault();const oldCode=gate.querySelector('#fpOld').value,newCode=gate.querySelector('#fpNext').value;if(!/^\d{6,12}$/.test(newCode)||newCode!==gate.querySelector('#fpRepeat').value){msg('Neuen Code prüfen.');return}try{await api('change','POST',{oldCode,newCode});msg('Code geändert. Bitte mit dem neuen Code anmelden.');setTimeout(()=>{renderForm()},1300)}catch(err){msg(err.message)}};}
 function close(){gate.classList.remove('open','fpPanelMode');gate.innerHTML=''}
