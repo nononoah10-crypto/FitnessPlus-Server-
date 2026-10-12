@@ -618,7 +618,7 @@ $('#importFile').addEventListener('change',async e=>{try{let f=e.target.files?.[
 setTimeout(refreshEvents,900);setInterval(refreshEvents,60000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)refreshEvents()});
 
 const normalOldSettings=settings;
-settings=function(){return normalOldSettings()+`<div class="card"><b>🌐 FitnessPlus Online</b><p class="sub">Die Online-Verwaltung läuft getrennt von dieser App. Dein lokaler Spielstand wird nicht automatisch übertragen.</p><a href="https://fitnessplus-server.onrender.com/online.html" target="_blank" rel="noopener noreferrer" class="primary" style="display:block;text-align:center;text-decoration:none">Online-Konto öffnen ↗</a></div>`};
+// Online-Anmeldung ist im Kopfbereich statt unter Mehr erreichbar.
 function checkReminders(){let now=new Date(),stamp=dkey(now)+'T'+String(now.getHours()).padStart(2,'0')+':'+String(now.getMinutes()).padStart(2,'0');let any=false;for(let r of s.reminders){if(!r.shown&&`${r.date}T${r.time}`<=stamp){r.shown=true;any=true;toast('Erinnerung: Zeit für dein FitnessPlus-Training!')}}if(any)save()}
 setInterval(timerTick,100);setInterval(()=>{const msg=$('#rewardTimeText');if(msg&&s.active){const g=rewardTimeInfo();msg.textContent=g.ready?'✓ Trainingszeit erreicht! Truhen sind jetzt freigeschaltet.':'Noch '+rewardTimeLabel(g.remaining)+' bis zu deinen Truhen. Du kannst vorher abschließen, bekommst dann aber keine Truhe.';}},1000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)timerTick()});window.addEventListener('pageshow',timerTick);render();if('serviceWorker'in navigator&&location.protocol==='https:')navigator.serviceWorker.register('./sw.js').catch(()=>{});
 
@@ -720,8 +720,8 @@ function fp72LevelRedeem(){
  save();render();toast('Level auf '+g.level+' gesetzt!');
 }
 const fp72BeforeGift=giftScreen;
-giftScreen=function(){return fp72BeforeGift()+`<div class="card"><b>🏆 Level-Änderung einlösen</b><p class="sub">Hast du vom Administrator einen Level-Code erhalten? Füge ihn hier ein. Ein Zurücksetzen auf Level 1 ist ebenfalls möglich.</p><textarea id="fp72LevelInput" class="input" rows="3" placeholder="FPL72-..."></textarea><button class="primary" data-fp72levelredeem="1">Level-Code einlösen</button></div>`};
-document.addEventListener('click',e=>{const b=e.target.closest('button[data-fp72levelredeem]');if(!b)return;e.preventDefault();e.stopImmediatePropagation();try{fp72LevelRedeem()}catch(err){toast(err.message||'Code ungültig')}},true);
+giftScreen=function(){return fp72BeforeGift()};
+
 
 
 // FitnessPlus Cloud Sync 7.5. Server-backed profile per logged-in account.
@@ -807,4 +807,31 @@ window.addEventListener('click',async e=>{
 },true);
 })();
 
+})();
+
+// Server-Nachrichten und gestartete Events mittig anzeigen (bei angemeldetem Online-Konto).
+(()=>{
+ const seenKey='fp-live-popup-seen-v1';
+ const getSeen=()=>{try{return JSON.parse(localStorage.getItem(seenKey)||'{}')}catch{return {}}};
+ let queue=[],showing=false,loading=false;
+ function next(){if(showing||!queue.length)return;showing=true;
+  const item=queue.shift(),el=document.getElementById('announcementOverlay');if(!el){showing=false;return}
+  el.innerHTML='<div class="announceModal" role="dialog" aria-modal="true"><div class="announceMark">'+(item.kind==='event'?'🎉':'📣')+'</div><div class="announceTop">'+(item.kind==='event'?'EVENT GESTARTET':'NEUE NACHRICHT')+'</div><h2>'+safe(item.title)+'</h2><p>'+safe(item.body)+'</p><button class="primary" type="button" id="fpLiveDismiss">Okay</button></div>';
+  el.classList.add('show');el.querySelector('#fpLiveDismiss').addEventListener('click',()=>{el.classList.remove('show');showing=false;next()},{once:true});
+ }
+ function enqueue(kind,id,title,body){if(!id)return;const seen=getSeen(),key=kind+':'+id;if(seen[key])return;seen[key]=Date.now();
+  try{const entries=Object.entries(seen).sort((a,b)=>b[1]-a[1]).slice(0,80);localStorage.setItem(seenKey,JSON.stringify(Object.fromEntries(entries)))}catch{}
+  queue.push({kind,title,body});next();
+ }
+ async function poll(){if(loading||document.hidden)return;loading=true;
+  try{
+   const [a,e]=await Promise.all([fetch('/api/announcements',{credentials:'same-origin',cache:'no-store'}),fetch('/api/events',{credentials:'same-origin',cache:'no-store'})]);
+   if(a.ok){const d=await a.json(),m=d.message;if(m&&m.id&&m.message)enqueue('message',String(m.id),String(m.title||'Mitteilung'),String(m.message));}
+   if(e.ok){const d=await e.json(),v=d.events||{};if(v.updatedAt&&((v.giftDiamonds>0)||v.doubleXp||v.season||v.wheel)){
+    const details=[v.giftDiamonds>0?'🎁 '+v.giftDiamonds+' Diamanten':null,v.doubleXp?'⚡ Doppel-XP':null,v.season?'🏆 Saison':null,v.wheel?'🎡 Glücksrad':null].filter(Boolean).join(' · ');
+    enqueue('event',String(v.updatedAt),'Neues FitnessPlus-Event!',details||'Ein Event ist gestartet.');
+   }}
+  }catch{}finally{loading=false}
+ }
+ setTimeout(poll,1600);setInterval(poll,15000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)poll()});
 })();
