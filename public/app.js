@@ -823,65 +823,58 @@ window.addEventListener('click',async e=>{
  }
  setTimeout(poll,1600);setInterval(poll,15000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)poll()});
 
-// FitnessPlus: gift sending without codes. Authenticated and server-authoritative.
+// FitnessPlus: one simple, server-backed gift form; no codes.
 (()=>{
  const esc=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
- const labels={boost2small:'2x Booster (3 Übungen)',boost2long:'2x Booster (8 Übungen)',boost3mega:'3x Booster (5 Übungen)'};
- let friends=[],inventory=[],catalog={},loading=false,onlineDiamonds=0;
- const request=async(method,url,data)=>{const r=await fetch(url,{method,credentials:'same-origin',cache:'no-store',headers:{'Content-Type':'application/json'},...(data?{body:JSON.stringify(data)}:{})});const x=await r.json();if(!r.ok)throw Error(x.error||'Serverfehler');return x};
- async function reload(){if(loading||!window.FP76Online)return;loading=true;try{const [f,i,g]=await Promise.all([request('GET','/api/friends'),request('GET','/api/gifts/inventory'),request('GET','/api/game')]);friends=f.friends||[];inventory=i.inventory||[];catalog=i.catalog||{};onlineDiamonds=g.user?.diamonds??0;if(s.view==='gifts')render()}catch(e){toast(e.message)}finally{loading=false}}
- const oldGiftScreen=giftScreen;
+ const names={boost2small:'Doppel-Power',boost2long:'Trainings-Turbo',boost3mega:'Mega-XP'};
+ let friends=[],catalog={},balance=0,busy=false;
+ const api=async(method,path,body)=>{const r=await fetch(path,{method,credentials:'same-origin',cache:'no-store',headers:{'Content-Type':'application/json'},...(body?{body:JSON.stringify(body)}:{})});const d=await r.json();if(!r.ok)throw Error(d.error||'Serverfehler');return d};
+ async function refresh(){if(busy||!window.FP76Online)return;busy=true;try{
+  const [f,i,g]=await Promise.all([api('GET','/api/friends'),api('GET','/api/gifts/inventory'),api('GET','/api/game')]);
+  friends=f.friends||[];catalog=i.catalog||{};balance=g.user?.diamonds??0;
+  if(s.view==='gifts')render();
+ }catch(e){toast(e.message)}finally{busy=false}}
  giftScreen=function(){
-  if(!window.FP76Online)return hdr('GESCHENKE','Direkt an Freunde senden')+'<div class="card"><b>Online anmelden</b><p>Geschenke werden nur noch sicher über den Server versendet. Bitte melde dich oben über „Anmelden“ an.</p><button class="primary" data-giftlogin="1">Anmelden</button></div>';
-  const opts=friends.map(f=>`<option value="${esc(f.id)}">${esc(f.name)}</option>`).join('');
-  const owned=inventory.filter(i=>i.quantity>0&&catalog[i.item]);
+  if(!window.FP76Online)return hdr('GESCHENKE','Direkt über den Server')+`<button class="btn" data-giftback="1">← Zum Diamantenshop</button><div class="card"><b>Bitte anmelden</b><p>Zum Verschenken musst du mit deinem Online-Konto angemeldet sein.</p><button class="primary" data-giftlogin="1">Anmelden</button></div>`;
+  const options=friends.map(f=>`<option value="${esc(f.id)}">${esc(f.name)}</option>`).join('');
+  const items=Object.entries(catalog).map(([id,v])=>`<option value="${esc(id)}">${esc(names[id]||id)} · ${Number(v.price)||0} 💎</option>`).join('');
   return hdr('GESCHENKE','Direkt an Freunde senden')+`<button class="btn" data-giftback="1">← Zum Diamantenshop</button>
-  <section class="boosterHero"><div class="shopKicker">DEINE DIAMANTEN</div><div class="boosterBalance">💎 ${onlineDiamonds}</div><div class="boosterStatus">🎁 Geschenke gehen direkt an das Konto deines Freundes.</div></section>
-  <div class="card"><b>🎁 Geschenk senden</b><p class="sub">Freund auswählen, Geschenk auswählen und absenden. Kein Geschenk-Code nötig.</p>
-  <label class="field" for="giftFriendOnline">Für wen?</label><select class="input" id="giftFriendOnline"><option value="">Freund auswählen</option>${opts}</select>
-  <label class="field" for="giftKindOnline">Was möchtest du schenken?</label><select class="input" id="giftKindOnline"><option value="booster">⚡ Level-Booster kaufen und schenken</option><option value="diamonds">💎 Eigene Diamanten senden</option><option value="inventory">🎒 Vorhandenes Inventargeschenk senden</option></select>
-  <div id="giftBoosterRow"><label class="field" for="giftBoosterOnline">Welchen Booster schenken?</label><select class="input" id="giftBoosterOnline">${Object.keys(catalog).map(id=>`<option value="${esc(id)}">${esc(labels[id]||id)} · ${catalog[id].price} 💎</option>`).join('')}</select></div>
-  <div id="giftAmountRow" style="display:none"><label class="field" for="giftAmountOnline">Wie viele Diamanten?</label><input class="input" id="giftAmountOnline" type="number" min="1" max="100000" value="10"></div>
-  <div id="giftInventoryRow" style="display:none"><label class="field" for="giftItemOnline">Welches Inventargeschenk?</label><select class="input" id="giftItemOnline">${owned.length?owned.map(i=>`<option value="${esc(i.item)}">${esc(labels[i.item]||i.item)} (${i.quantity} vorhanden)</option>`).join(''):'<option value="">Keine Geschenke vorhanden</option>'}</select></div>
-  <button class="primary" data-directsend="1">Geschenk absenden</button></div>
-  <div class="card"><b>🎒 Dein Inventar</b><p class="sub">Booster, die du besitzt oder geschenkt bekommen hast.</p>${owned.length?owned.map(i=>`<div class="giftEntry"><span>${esc(labels[i.item]||i.item)} × ${i.quantity}</span> <button class="btn" data-inventoryactivate="${esc(i.item)}">Aktivieren</button></div>`).join(''):'<p class="sub">Noch keine Geschenke vorhanden.</p>'}</div>`;
+  <div class="card"><b>🎁 Geschenk senden</b><p class="sub">Dein Guthaben: 💎 ${balance}. Keine Geschenk-Codes.</p>
+  <label class="field" for="giftFriendOnline">Freund auswählen</label><select class="input" id="giftFriendOnline"><option value="">Bitte auswählen</option>${options}</select>
+  <label class="field" for="giftKindOnline">Was möchtest du verschenken?</label><select class="input" id="giftKindOnline"><option value="diamonds">💎 Diamanten</option><option value="booster">🎁 Item aus dem Item-Shop</option></select>
+  <div id="giftAmountRow"><label class="field" for="giftAmountOnline">Anzahl Diamanten</label><input class="input" id="giftAmountOnline" type="number" inputmode="numeric" min="1" max="100000" step="1" value="10"></div>
+  <div id="giftBoosterRow" style="display:none"><label class="field" for="giftBoosterOnline">Item auswählen</label><select class="input" id="giftBoosterOnline">${items}</select></div>
+  <button class="primary" data-directsend="1">Geschenk absenden</button></div>`;
  };
- const oldRender=render;
- render=function(){oldRender();if(s.view==='gifts')document.querySelector('#page').innerHTML=giftScreen()};
- document.addEventListener('change',e=>{
-  if(e.target?.id!=='giftKindOnline')return;
-  const kind=e.target.value;
-  for(const [id,show] of [['giftBoosterRow',kind==='booster'],['giftAmountRow',kind==='diamonds'],['giftInventoryRow',kind==='inventory']]){
-   const el=document.getElementById(id);if(el)el.style.display=show?'':'none';
-  }
+ const priorRender=render;
+ render=function(){priorRender();if(s.view==='gifts'){const page=document.querySelector('#page');if(page)page.innerHTML=giftScreen()}};
+ document.addEventListener('change',e=>{if(e.target?.id!=='giftKindOnline')return;
+  const isItem=e.target.value==='booster';document.getElementById('giftBoosterRow').style.display=isItem?'':'none';document.getElementById('giftAmountRow').style.display=isItem?'none':'';
  });
+ // Capture on window BEFORE older legacy document handlers, so old code cannot create/redeem gifts.
  window.addEventListener('click',async e=>{
   const b=e.target.closest('button');if(!b)return;
-  if(b.dataset.giftmenu!==undefined){e.preventDefault();e.stopImmediatePropagation();s.view='gifts';render();await reload();return}
+  if(b.dataset.giftmenu!==undefined){e.preventDefault();e.stopImmediatePropagation();s.view='gifts';render();await refresh();return}
+  if(b.dataset.giftback!==undefined){e.preventDefault();e.stopImmediatePropagation();s.view='store';render();return}
   if(b.dataset.giftlogin!==undefined){e.preventDefault();e.stopImmediatePropagation();window.FitnessPlusOpenOnline?.();return}
-  if(b.dataset.directsend===undefined&&b.dataset.inventorybuy===undefined&&b.dataset.inventoryactivate===undefined)return;
-  e.preventDefault();e.stopImmediatePropagation();
+  if(b.dataset.directsend===undefined)return;
+  e.preventDefault();e.stopImmediatePropagation();if(b.disabled)return;
   if(!window.FP76Online){toast('Bitte zuerst anmelden');return}
-  try{
-   if(b.dataset.directsend!==undefined){
-    const friendId=document.querySelector('#giftFriendOnline')?.value,kind=document.querySelector('#giftKindOnline')?.value;
-    if(!friendId)throw Error('Bitte einen Freund auswählen');
-    const name=friends.find(f=>f.id===friendId)?.name||'Freund';
-    const payload=kind==='diamonds'?{friendId,kind,amount:Number(document.querySelector('#giftAmountOnline')?.value)}:kind==='booster'?{friendId,kind,item:document.querySelector('#giftBoosterOnline')?.value}:{friendId,kind:'inventory',item:document.querySelector('#giftItemOnline')?.value};
-    if(!confirm('Geschenk wirklich an '+name+' senden?'))return;
-    await request('POST','/api/gifts/send',payload);toast('Geschenk an '+name+' gesendet!');
-   }else if(b.dataset.inventorybuy!==undefined){
-    const item=document.querySelector('#giftBuyOnline')?.value;if(!item)throw Error('Kein Geschenk ausgewählt');
-    if(!confirm('Für '+catalog[item].price+' Diamanten kaufen?'))return;
-    await request('POST','/api/gifts/inventory/buy',{item});toast('Geschenk ins Inventar gelegt!');
-   }else{
-    if(!confirm('Geschenk jetzt selbst aktivieren?'))return;
-    await request('POST','/api/gifts/inventory/activate',{item:b.dataset.inventoryactivate});toast('Booster aktiviert!');
-   }
-   await reload();window.FP76Refresh?.();
-  }catch(err){toast(err.message)}
+  const friendId=document.getElementById('giftFriendOnline')?.value;
+  const friend=friends.find(f=>f.id===friendId);
+  if(!friend){toast('Bitte einen Freund auswählen');return}
+  const kind=document.getElementById('giftKindOnline')?.value;
+  const amount=Number(document.getElementById('giftAmountOnline')?.value);
+  const item=document.getElementById('giftBoosterOnline')?.value;
+  if(kind==='diamonds'&&(!Number.isSafeInteger(amount)||amount<1||amount>100000)){toast('Bitte eine gültige Diamantenanzahl eingeben');return}
+  if(kind==='booster'&&(!item||!catalog[item])){toast('Bitte ein Item auswählen');return}
+  const description=kind==='diamonds'?amount+' Diamanten':(names[item]||item)+' ('+catalog[item].price+' Diamanten)';
+  if(!confirm(description+' an '+friend.name+' senden?'))return;
+  b.disabled=true;
+  try{await api('POST','/api/gifts/send',kind==='diamonds'?{friendId,kind,amount}:{friendId,kind:'booster',item});toast('Geschenk an '+friend.name+' gesendet!');await refresh();window.FP76Refresh?.()}
+  catch(err){toast(err.message)}finally{b.disabled=false}
  },true);
- setInterval(()=>{if(window.FP76Online&&s.view==='gifts'&&!loading)reload()},30000);
+ window.addEventListener('message',e=>{if(e.origin===location.origin&&e.data?.type==='fitnessplus-session-changed')setTimeout(refresh,1000)});
+ setInterval(()=>{if(window.FP76Online&&s.view==='gifts')refresh()},30000);
 })();
-
 })();
