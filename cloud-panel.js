@@ -1,0 +1,5 @@
+/* FitnessPlus 7.4: Serverkonto als integriertes Panel, Cookie-Sitzung bleibt auf derselben Domain. */
+(()=>{'use strict';const overlay=document.getElementById('fpCloudOverlay'),frame=document.getElementById('fpCloudFrame');function open(){frame.src='/online.html';overlay.classList.add('open');document.body.style.overflow='hidden'}function close(){overlay.classList.remove('open');frame.src='about:blank';document.body.style.overflow=''}document.getElementById('fpCloudOpen').addEventListener('click',open);document.getElementById('fpCloudClose').addEventListener('click',close);document.addEventListener('keydown',e=>{if(e.key==='Escape'&&overlay.classList.contains('open'))close()});window.FitnessPlusOpenOnline=open;})();
+
+// FitnessPlus 8.1: display server-wide announcements in both app versions.
+(()=>{const s=document.createElement("script");s.src="/broadcast.js";document.head.appendChild(s)})();
