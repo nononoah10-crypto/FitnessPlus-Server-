@@ -39,20 +39,19 @@ function json(res,status,data){const body=JSON.stringify(data);res.writeHead(sta
 function error(res,status,msg){json(res,status,{error:msg})}
 function cookies(req){const result={};for(const c of (req.headers.cookie||'').split(';')){const ix=c.indexOf('=');if(ix>-1)result[c.slice(0,ix).trim()]=c.slice(ix+1).trim()}return result}
 function session(req){const token=cookies(req).fp_session;if(!token)return null;const th=crypto.createHash('sha256').update(token).digest('hex');return q('SELECT u.* FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=? AND s.expires_at>?',th,Date.now())||null}
-// Separate, persistent admin-device cookie, signed using the Render environment secret.
-// Enrollment requires the secret once; no admin password is stored in SQLite.
-const deviceAdminSecret=process.env.FITNESSPLUS_ADMIN_PASSWORD||'';
+// Only a device with the private random credential matching the Render-held hash can administer.
+// The hash must be entered manually in Render. No SQLite enrollment state is trusted.
+const adminDeviceHash=(process.env.FITNESSPLUS_ADMIN_DEVICE_HASH||'').trim().toLowerCase();
+const validAdminConfig=/^[a-f0-9]{64}$/.test(adminDeviceHash);
 function deviceAdminValid(req){
- if(deviceAdminSecret.length<10)return false;
- const supplied=cookies(req).fp_admin_device||'';
- const expected=crypto.createHmac('sha256',deviceAdminSecret).update('fitnessplus-admin-device-v1').digest('hex');
- return supplied.length===expected.length&&crypto.timingSafeEqual(Buffer.from(supplied),Buffer.from(expected));
+ const credential=cookies(req).fp_admin_device||'';
+ if(!validAdminConfig||!/^[a-f0-9]{64}$/.test(credential))return false;
+ const actual=crypto.createHash('sha256').update(credential,'utf8').digest('hex');
+ return crypto.timingSafeEqual(Buffer.from(actual,'hex'),Buffer.from(adminDeviceHash,'hex'));
 }
-function setDeviceAdminCookie(res){
- const value=crypto.createHmac('sha256',deviceAdminSecret).update('fitnessplus-admin-device-v1').digest('hex');
- res.setHeader('Set-Cookie',`fp_admin_device=${value}; HttpOnly; Secure; SameSite=Strict; Path=/api/; Max-Age=31536000`);
+function setDeviceAdminCookie(res,credential){
+ res.setHeader('Set-Cookie',`fp_admin_device=${credential}; HttpOnly; Secure; SameSite=Strict; Path=/api/; Max-Age=31536000`);
 }
-function adminSession(req){return deviceAdminValid(req)?{id:'device-admin',username:'FitnessPlus Admin',role:'admin'}:session(req)}
 function cookie(res,token,expire=false){const secure=process.env.NODE_ENV==='production'?'; Secure':'';res.setHeader('Set-Cookie',`fp_session=${token||''}; HttpOnly; SameSite=Lax; Path=/; ${expire?'Max-Age=0':'Max-Age=604800'}${secure}`)}
 async function body(req){let raw='';for await(const chunk of req){raw+=chunk;if(raw.length>1600000)throw new Error('Eingabe zu groß')}try{return raw?JSON.parse(raw):{}}catch{throw new Error('Ungültiges JSON')}}
 function validName(s){return typeof s==='string'&&/^[\p{L}\p{N}_-]{3,24}$/u.test(s)}
@@ -63,29 +62,6 @@ function audit(actor,subject,action,detail=''){run('INSERT INTO audit VALUES(?,?
 const mime={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.png':'image/png','.webmanifest':'application/manifest+json','.json':'application/json; charset=utf-8','.txt':'text/plain; charset=utf-8'};
 function staticFile(req,res,url){let file=decodeURIComponent(url.pathname);if(file==='/' )file='/index.html';let abs=path.resolve(WEB,'.'+file);if(!abs.startsWith(WEB+path.sep))return error(res,403,'Unzulässiger Pfad');let ext=path.extname(abs);if(!mime[ext]||path.basename(abs).startsWith('.'))return error(res,404,'Nicht gefunden');fs.readFile(abs,(err,data)=>{if(err)return error(res,404,'Nicht gefunden');res.writeHead(200,{'content-type':mime[ext],'x-content-type-options':'nosniff','cache-control':ext==='.html'||ext==='.js'||ext==='.json'?'no-cache':'public, max-age=3600'});res.end(data)})}
 
-// Einmalige, serverseitig geschuetzte Admin-Einrichtung.
-// Der geheime Link wird nur in Render-Logs ausgegeben und nie im Repository gespeichert.
-const ADMIN_OWNER='__fitnessplus_owner__';
-const adminSetupToken=crypto.randomBytes(32).toString('hex');
-function isAdminReady(){return !!q('SELECT value FROM settings WHERE key=?','admin_setup_complete')}
-function setupTokenOK(token){
- if(typeof token!=='string'||token.length!==adminSetupToken.length)return false;
- return crypto.timingSafeEqual(Buffer.from(token),Buffer.from(adminSetupToken));
-}
-function ownerUser(){return q('SELECT * FROM users WHERE username=?',ADMIN_OWNER)}
-function createOwner(code){
- db.exec('BEGIN IMMEDIATE');
- try{
-  if(isAdminReady())throw Error('Bereits eingerichtet');
-  const existing=ownerUser();
-  if(existing)throw Error('Administratoreinrichtung ist bereits vorhanden');
-  const salt=random(16);
-  run('INSERT INTO users(id,username,passhash,salt,role,friend_code,created_at) VALUES(?,?,?,?,?,?,?)',uid(),ADMIN_OWNER,hashPass(code,salt),salt,'admin','FP-'+random(8).toUpperCase(),Date.now());
-  run('INSERT INTO settings(key,value) VALUES(?,?)','admin_setup_complete','1');
-  db.exec('COMMIT');
- }catch(err){db.exec('ROLLBACK');throw err}
-}
-
 async function handler(req,res){try{
  const url=new URL(req.url,'http://localhost');
  if(!url.pathname.startsWith('/api/')){if(!['GET','HEAD'].includes(req.method))return error(res,405,'Nur GET');return staticFile(req,res,url)}
@@ -93,31 +69,20 @@ async function handler(req,res){try{
  if(req.method!=='GET'&&!sameOrigin(req))return error(res,403,'Herkunft nicht erlaubt');
  if(['POST','PUT'].includes(req.method)&&req.headers['content-type']?.split(';')[0]!=='application/json')return error(res,415,'JSON erforderlich');
  const data=['POST','PUT'].includes(req.method)?await body(req):{};
-  if(req.method==='GET'&&url.pathname==='/api/admin-code/status')return json(res,200,{configured:isAdminReady()});
-  if(req.method==='POST'&&url.pathname==='/api/admin-code/setup'){
-   if(isAdminReady())return error(res,409,'Der einmalige Einrichtungslink ist bereits verbraucht');
+  if(req.method==='GET'&&url.pathname==='/api/admin-device/status')
+   return json(res,200,{available:validAdminConfig,authorized:deviceAdminValid(req)});
+  if(req.method==='POST'&&url.pathname==='/api/admin-device/activate'){
+   if(!validAdminConfig)return error(res,403,'Zuerst FITNESSPLUS_ADMIN_DEVICE_HASH in Render eintragen.');
    const code=String(data.code||'');
-   if(!setupTokenOK(data.token))return error(res,403,'Einrichtungslink ungueltig oder abgelaufen');
-   if(code.length<10||code.length>128)return error(res,400,'Passwort muss 10 bis 128 Zeichen lang sein');
-   try{createOwner(code)}catch(err){return error(res,409,err.message)}
-   return startSession(res,ownerUser());
-  }
-  if(req.method==='POST'&&url.pathname==='/api/admin-code/login'){
-   if(!isAdminReady())return error(res,403,'Admin wurde noch nicht eingerichtet');
-   const owner=ownerUser();
-   if(!owner||typeof data.code!=='string'||!authPass(owner,data.code))return error(res,401,'Passwort falsch');
-   return startSession(res,owner);
-  }
-  if(req.method==='POST'&&url.pathname==='/api/admin-code/change'){
-   const owner=ownerUser(),oldCode=data.oldCode,newCode=data.newCode;
-   const active=session(req);
-   if(!owner||!active||active.id!==owner.id)return error(res,403,'Bitte als Administrator anmelden');
-   if(typeof oldCode!=='string'||!authPass(owner,oldCode))return error(res,401,'Altes Passwort falsch');
-   if(typeof newCode!=='string'||newCode.length<10||newCode.length>128)return error(res,400,'Neues Passwort: 10 bis 128 Zeichen');
-   const salt=random(16);run('UPDATE users SET passhash=?,salt=? WHERE id=?',hashPass(newCode,salt),salt,owner.id);
-   run('DELETE FROM sessions WHERE user_id=?',owner.id);cookie(res,'',true);
+   if(!/^[a-f0-9]{64}$/.test(code))return error(res,403,'Geraeteschluessel ungueltig');
+   const hash=crypto.createHash('sha256').update(code,'utf8').digest('hex');
+   if(!crypto.timingSafeEqual(Buffer.from(hash,'hex'),Buffer.from(adminDeviceHash,'hex')))
+    return error(res,403,'Dieses Geraet ist nicht freigegeben');
+   setDeviceAdminCookie(res,code);
    return json(res,200,{ok:true});
   }
+  // Retired legacy administrator endpoints cannot create an alternative administrator.
+  if(url.pathname.startsWith('/api/admin-code/'))return error(res,410,'Alte Admin-Anmeldung deaktiviert');
 
  if(req.method==='POST'&&url.pathname==='/api/register'){
   if(!validName(data.name)||typeof data.password!=='string'||data.password.length<10||data.password.length>128)return error(res,400,'Name (3–24 Zeichen) und Passwort (mind. 10 Zeichen) erforderlich');
@@ -127,7 +92,11 @@ async function handler(req,res){try{
   const u=typeof data.name==='string'?q('SELECT * FROM users WHERE username=?',data.name):null;
   if(!u||typeof data.password!=='string'||!authPass(u,data.password))return error(res,401,'Login fehlgeschlagen');return startSession(res,u)
  }
- const u=session(req);if(!u)return error(res,401,'Bitte anmelden');
+   const adminPath=url.pathname.startsWith('/api/admin/');
+  const deviceAdmin=deviceAdminValid(req);
+  if(adminPath&&!deviceAdmin)return error(res,403,'Dieses Geraet hat keine Adminfreigabe');
+  const u=(adminPath||(deviceAdmin&&url.pathname==='/api/events'))?{id:'device-admin',username:'FitnessPlus Admin',role:'admin'}:session(req);
+  if(!u)return error(res,401,'Bitte anmelden');
  if(req.method==='POST'&&url.pathname==='/api/logout'){const tok=cookies(req).fp_session;run('DELETE FROM sessions WHERE token_hash=?',crypto.createHash('sha256').update(tok).digest('hex'));cookie(res,'',true);return json(res,200,{ok:true})}
  if(req.method==='GET'&&url.pathname==='/api/state'){
   const row=q('SELECT revision,payload,updated_at FROM cloud_state WHERE user_id=?',u.id);
@@ -311,7 +280,7 @@ async function handler(req,res){try{
  }
  if(req.method==='GET'&&url.pathname==='/api/announcements')return json(res,200,{message:JSON.parse(q('SELECT value FROM settings WHERE key=?','announcement')?.value||'null')});
  if(req.method==='GET'&&url.pathname==='/api/events')return json(res,200,{events:JSON.parse(q('SELECT value FROM settings WHERE key=?','events')?.value||'{}')});
- if(u.role!=='admin')return error(res,403,'Nur Administrator');
+ if(!deviceAdmin)return error(res,403,'Nur freigegebenes Admin-Geraet');
  if(req.method==='GET'&&url.pathname==='/api/admin/users')return json(res,200,{users:all('SELECT id,username AS name,diamonds,xp,role,1+CAST(xp/3 AS INTEGER) AS level FROM users ORDER BY username LIMIT 500')});
  if(req.method==='POST'&&url.pathname==='/api/admin/diamonds'){
   const v=Number(data.amount),target=q('SELECT * FROM users WHERE id=?',String(data.userId||''));if(!target||!Number.isSafeInteger(v)||v<1||v>100000)return error(res,400,'Ungültiger Empfänger/Betrag');
@@ -356,9 +325,7 @@ async function handler(req,res){try{
  }
  error(res,404,'Endpunkt nicht gefunden');
  }catch(e){console.error(e);error(res,e.message==='Eingabe zu groß'||e.message==='Ungültiges JSON'?400:500,e.message==='Eingabe zu groß'||e.message==='Ungültiges JSON'?e.message:'Serverfehler')}}
-// Initial admin is created only when explicitly configured via environment variables.
-if(process.env.ADMIN_NAME&&process.env.ADMIN_PASSWORD){const name=process.env.ADMIN_NAME,pass=process.env.ADMIN_PASSWORD;if(!validName(name)||pass.length<12)throw Error('ADMIN_NAME (3–24 Zeichen) und ADMIN_PASSWORD (mind. 12 Zeichen) prüfen');const existing=q('SELECT * FROM users WHERE username=?',name);if(!existing){let salt=random(16);run('INSERT INTO users(id,username,passhash,salt,role,friend_code,created_at) VALUES(?,?,?,?,?,?,?)',uid(),name,hashPass(pass,salt),salt,'admin','FP-'+random(8).toUpperCase(),Date.now());console.log('Admin-Konto eingerichtet')}else if(existing.role!=='admin')throw Error('ADMIN_NAME ist bereits vergeben');}
 const server=http.createServer(handler);server.listen(PORT,HOST,()=>{
  console.log(`FitnessPlus Server: http://localhost:${PORT} (Datenbank: ${DBPATH})`);
- if(!isAdminReady())console.log('FITNESSPLUS EINMALIGER EINRICHTUNGSLINK: https://fitnessplus-server.onrender.com/admin-setup.html#'+adminSetupToken);
+   console.log(validAdminConfig?'Admin-Geraeteschutz aktiviert':'Admin gesperrt: FITNESSPLUS_ADMIN_DEVICE_HASH fehlt');
 });
