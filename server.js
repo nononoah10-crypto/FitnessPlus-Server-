@@ -63,18 +63,28 @@ async function handler(req,res){try{
   const u=typeof data.name==='string'?q('SELECT * FROM users WHERE username=?',data.name):null;
   if(!u||typeof data.password!=='string'||!authPass(u,data.password))return error(res,401,'Login fehlgeschlagen');return startSession(res,u)
  }
-  // Secret admin code: setup requires a separate server-side bootstrap secret.
+  // One-time setup inside the admin app, using the existing server admin account.
   if(req.method==='GET'&&url.pathname==='/api/admin-code/status')return json(res,200,{configured:!!q('SELECT 1 FROM settings WHERE key=?','admin_code_hash')});
   if(req.method==='POST'&&url.pathname==='/api/admin-code/setup'){
-   const secret=process.env.ADMIN_SETUP_KEY||'';
-   const candidate=String(data.setupKey||''),code=String(data.code||'');
-   if(!secret||secret.length<16)return error(res,503,'ADMIN_SETUP_KEY fehlt oder ist zu kurz (mindestens 16 Zeichen)');
-   if(candidate.length!==secret.length||!crypto.timingSafeEqual(Buffer.from(candidate),Buffer.from(secret)))return error(res,403,'Einrichtung nicht autorisiert');
-   if(!/^[\x21-\x7e]{8,64}$/.test(code))return error(res,400,'Code: 8 bis 64 Zeichen ohne Leerzeichen');
+   if(q('SELECT 1 FROM settings WHERE key=?','admin_code_hash'))return error(res,409,'Admin-Code ist bereits eingerichtet');
+   const code=String(data.code||'');
+   if(!/^\d{6,12}$/.test(code))return error(res,400,'Code muss aus 6 bis 12 Ziffern bestehen');
+   const ip=req.socket.remoteAddress||'unknown',key='pin-setup:'+ip,now=Date.now();
+   const b=bucket.get(key)||{count:0,until:now+15*60000};
+   if(now>b.until){b.count=0;b.until=now+15*60000}
+   b.count++;bucket.set(key,b);
+   if(b.count>8)return error(res,429,'Zu viele Versuche. Bitte in 15 Minuten erneut versuchen');
+   const existing=session(req);
+   let admin=existing?.role==='admin'?existing:null;
+   if(!admin){
+    admin=typeof data.name==='string'?q('SELECT * FROM users WHERE username=?',data.name):null;
+    if(!admin||admin.role!=='admin'||typeof data.password!=='string'||!authPass(admin,data.password))return error(res,403,'Admin-Konto konnte nicht bestätigt werden');
+   }
    const salt=random(16),hashed=hashPass(code,salt);
    const inserted=run('INSERT OR IGNORE INTO settings(key,value) VALUES(?,?)','admin_code_hash',JSON.stringify({salt,hashed}));
    if(!inserted.changes)return error(res,409,'Code ist bereits eingerichtet');
-   audit('setup','admin','admin_code_setup');return json(res,200,{ok:true});
+   b.count=0;
+   audit(admin.id,admin.id,'admin_code_setup');return startSession(res,admin);
   }
   if(req.method==='POST'&&url.pathname==='/api/admin-code/login'){
    const row=q('SELECT value FROM settings WHERE key=?','admin_code_hash');
@@ -278,7 +288,7 @@ async function handler(req,res){try{
  if(u.role!=='admin')return error(res,403,'Nur Administrator');
   if(req.method==='POST'&&url.pathname==='/api/admin-code/change'){
    const old=String(data.oldCode||''),next=String(data.newCode||'');
-   if(!/^[\x21-\x7e]{8,64}$/.test(next))return error(res,400,'Neuer Code: 8 bis 64 Zeichen ohne Leerzeichen');
+   if(!/^\d{6,12}$/.test(next))return error(res,400,'Neuer Code: 6 bis 12 Ziffern');
    const savedRow=q('SELECT value FROM settings WHERE key=?','admin_code_hash');
    if(!savedRow)return error(res,409,'Noch kein Admin-Code eingerichtet');
    const saved=JSON.parse(savedRow.value);
