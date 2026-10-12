@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS game_season_claims (user_id TEXT NOT NULL REFERENCES 
 CREATE TABLE IF NOT EXISTS game_event_claims (user_id TEXT NOT NULL REFERENCES users(id), event_id TEXT NOT NULL, diamonds INTEGER NOT NULL, PRIMARY KEY(user_id,event_id));
 CREATE TABLE IF NOT EXISTS game_gift_codes (id TEXT PRIMARY KEY, code_hash TEXT NOT NULL UNIQUE, sender_id TEXT NOT NULL REFERENCES users(id), recipient_id TEXT REFERENCES users(id), item TEXT NOT NULL, created_at INTEGER NOT NULL, redeemed_at INTEGER, redeemed_by TEXT REFERENCES users(id));`);
 db.exec(`CREATE TABLE IF NOT EXISTS direct_gifts (id TEXT PRIMARY KEY, sender_id TEXT NOT NULL REFERENCES users(id), recipient_id TEXT NOT NULL REFERENCES users(id), item TEXT NOT NULL, created_at INTEGER NOT NULL, claimed_at INTEGER);`);
+db.exec(`CREATE TABLE IF NOT EXISTS gift_inventory (user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, item TEXT NOT NULL, quantity INTEGER NOT NULL DEFAULT 0 CHECK(quantity>=0), PRIMARY KEY(user_id,item));`);
 function currentEvent(){return JSON.parse(q('SELECT value FROM settings WHERE key=?','events')?.value||'{}')}
 function eventId(e){return String(e.updatedAt||0)}
 function seasonTiers(){return [{at:3,diamonds:10},{at:10,diamonds:25},{at:25,diamonds:60},{at:50,diamonds:120}]}
@@ -219,14 +220,47 @@ async function handler(req,res){try{
  if(req.method==='GET'&&url.pathname==='/api/gifts/inbox'){
   return json(res,200,{gifts:all('SELECT g.id,g.item,g.created_at AS createdAt,u.username AS sender FROM direct_gifts g JOIN users u ON u.id=g.sender_id WHERE g.recipient_id=? AND g.claimed_at IS NULL ORDER BY g.created_at DESC LIMIT 50',u.id)});
  }
- if(req.method==='POST'&&url.pathname==='/api/gifts/send'){
-  const item=String(data.item||''),b=boostCatalog[item],friendId=String(data.friendId||'');
-  if(!b)return error(res,400,'Unbekannter Booster');
-  if(friendId===u.id||!q('SELECT 1 FROM friendship WHERE (a=? AND b=?) OR (a=? AND b=?)',u.id,friendId,friendId,u.id))return error(res,403,'Nur an Freunde senden');
+ if(req.method==='GET'&&url.pathname==='/api/gifts/inventory'){
+  return json(res,200,{inventory:all('SELECT item,quantity FROM gift_inventory WHERE user_id=? AND quantity>0',u.id),catalog:boostCatalog});
+ }
+ if(req.method==='POST'&&url.pathname==='/api/gifts/inventory/buy'){
+  const item=String(data.item||''),b=boostCatalog[item];if(!b)return error(res,400,'Unbekanntes Geschenk');
   db.exec('BEGIN IMMEDIATE');try{
    if(!run('UPDATE users SET diamonds=diamonds-? WHERE id=? AND diamonds>=?',b.price,u.id,b.price).changes){db.exec('ROLLBACK');return error(res,400,'Nicht genug Diamanten')}
-   run('INSERT INTO direct_gifts(id,sender_id,recipient_id,item,created_at) VALUES(?,?,?,?,?)',uid(),u.id,friendId,item,Date.now());db.exec('COMMIT');
-   return json(res,200,{ok:true,user:publicUser(q('SELECT * FROM users WHERE id=?',u.id))});
+   run('INSERT INTO gift_inventory(user_id,item,quantity) VALUES(?,?,1) ON CONFLICT(user_id,item) DO UPDATE SET quantity=quantity+1',u.id,item);
+   db.exec('COMMIT');return json(res,200,{ok:true,user:publicUser(q('SELECT * FROM users WHERE id=?',u.id))});
+  }catch(err){db.exec('ROLLBACK');throw err}
+ }
+ if(req.method==='POST'&&url.pathname==='/api/gifts/send'){
+  const friendId=String(data.friendId||''),kind=String(data.kind||'');
+  if(friendId===u.id||!q('SELECT 1 FROM friendship WHERE (a=? AND b=?) OR (a=? AND b=?)',u.id,friendId,friendId,u.id))return error(res,403,'Nur an Freunde senden');
+  if(kind==='diamonds'){
+   const amount=Number(data.amount);if(!Number.isSafeInteger(amount)||amount<1||amount>100000)return error(res,400,'Ungültige Diamantenanzahl');
+   db.exec('BEGIN IMMEDIATE');try{
+    if(!run('UPDATE users SET diamonds=diamonds-? WHERE id=? AND diamonds>=?',amount,u.id,amount).changes){db.exec('ROLLBACK');return error(res,400,'Nicht genug Diamanten')}
+    run('UPDATE users SET diamonds=diamonds+? WHERE id=?',amount,friendId);
+    audit(u.id,friendId,'friend_diamonds',amount);
+    db.exec('COMMIT');return json(res,200,{ok:true,user:publicUser(q('SELECT * FROM users WHERE id=?',u.id))});
+   }catch(err){db.exec('ROLLBACK');throw err}
+  }
+  if(kind==='inventory'){
+   const item=String(data.item||'');if(!boostCatalog[item])return error(res,400,'Unbekanntes Geschenk');
+   db.exec('BEGIN IMMEDIATE');try{
+    if(!run('UPDATE gift_inventory SET quantity=quantity-1 WHERE user_id=? AND item=? AND quantity>0',u.id,item).changes){db.exec('ROLLBACK');return error(res,400,'Dieses Geschenk ist nicht in deinem Inventar')}
+    run('INSERT INTO gift_inventory(user_id,item,quantity) VALUES(?,?,1) ON CONFLICT(user_id,item) DO UPDATE SET quantity=quantity+1',friendId,item);
+    audit(u.id,friendId,'friend_inventory',item);
+    db.exec('COMMIT');return json(res,200,{ok:true});
+   }catch(err){db.exec('ROLLBACK');throw err}
+  }
+  return error(res,400,'Bitte Diamanten oder Inventargeschenk auswählen');
+ }
+ if(req.method==='POST'&&url.pathname==='/api/gifts/inventory/activate'){
+  const item=String(data.item||''),b=boostCatalog[item];if(!b)return error(res,400,'Unbekanntes Geschenk');
+  db.exec('BEGIN IMMEDIATE');try{
+   if(q('SELECT uses FROM game_boosters WHERE user_id=?',u.id)?.uses>0){db.exec('ROLLBACK');return error(res,409,'Bitte zuerst deinen aktiven Booster aufbrauchen')}
+   if(!run('UPDATE gift_inventory SET quantity=quantity-1 WHERE user_id=? AND item=? AND quantity>0',u.id,item).changes){db.exec('ROLLBACK');return error(res,400,'Geschenk nicht vorhanden')}
+   run('INSERT INTO game_boosters(user_id,multiplier,uses) VALUES(?,?,?) ON CONFLICT(user_id) DO UPDATE SET multiplier=excluded.multiplier,uses=excluded.uses',u.id,b.multiplier,b.uses);
+   db.exec('COMMIT');return json(res,200,{ok:true,booster:{multiplier:b.multiplier,uses:b.uses}});
   }catch(err){db.exec('ROLLBACK');throw err}
  }
  if(req.method==='POST'&&url.pathname==='/api/gifts/claim'){
@@ -242,33 +276,8 @@ async function handler(req,res){try{
    db.exec('COMMIT');return json(res,200,{ok:true,booster:{multiplier:b.multiplier,uses:b.uses}});
   }catch(err){db.exec('ROLLBACK');throw err}
  }
- if(req.method==='POST'&&url.pathname==='/api/game/gift/create'){
-  const item=String(data.item||''),boost=boostCatalog[item],recipientCode=String(data.friendCode||'').trim();
-  if(!boost)return error(res,400,'Unbekannter Geschenk-Booster');
-  const receiver=q('SELECT * FROM users WHERE friend_code=?',recipientCode);
-  if(!receiver||receiver.id===u.id)return error(res,404,'Empfänger nicht gefunden');
-  const code='FPG-'+random(18),hashed=crypto.createHash('sha256').update(code).digest('hex');
-  db.exec('BEGIN IMMEDIATE');try{
-   let debit=run('UPDATE users SET diamonds=diamonds-? WHERE id=? AND diamonds>=?',boost.price,u.id,boost.price);
-   if(!debit.changes){db.exec('ROLLBACK');return error(res,400,'Nicht genug Diamanten')}
-   run('INSERT INTO game_gift_codes(id,code_hash,sender_id,recipient_id,item,created_at) VALUES(?,?,?,?,?,?)',uid(),hashed,u.id,receiver.id,item,Date.now());db.exec('COMMIT');
-   return json(res,200,{ok:true,code,recipient:receiver.username,item,user:publicUser(q('SELECT * FROM users WHERE id=?',u.id))});
-  }catch(err){db.exec('ROLLBACK');throw err}
- }
- if(req.method==='POST'&&url.pathname==='/api/game/gift/redeem'){
-  const code=String(data.code||'').trim();if(!/^FPG-[\w-]{20,40}$/.test(code))return error(res,400,'Ungültiger Online-Geschenkcode');
-  const hashed=crypto.createHash('sha256').update(code).digest('hex');
-  db.exec('BEGIN IMMEDIATE');try{
-   const gift=q('SELECT * FROM game_gift_codes WHERE code_hash=?',hashed);
-   if(!gift||gift.recipient_id!==u.id||gift.redeemed_at){db.exec('ROLLBACK');return error(res,404,'Code ungültig, bereits eingelöst oder nicht für dich')}
-   const active=q('SELECT uses FROM game_boosters WHERE user_id=?',u.id);
-   if(active?.uses>0){db.exec('ROLLBACK');return error(res,409,'Bitte zuerst deinen aktiven Booster aufbrauchen')}
-   const b=boostCatalog[gift.item];if(!b){db.exec('ROLLBACK');return error(res,400,'Geschenk nicht mehr verfügbar')}
-   run('UPDATE game_gift_codes SET redeemed_at=?,redeemed_by=? WHERE id=? AND redeemed_at IS NULL',Date.now(),u.id,gift.id);
-   run('INSERT INTO game_boosters(user_id,multiplier,uses) VALUES(?,?,?) ON CONFLICT(user_id) DO UPDATE SET multiplier=excluded.multiplier,uses=excluded.uses',u.id,b.multiplier,b.uses);
-   db.exec('COMMIT');return json(res,200,{ok:true,booster:{multiplier:b.multiplier,uses:b.uses},user:publicUser(q('SELECT * FROM users WHERE id=?',u.id))});
-  }catch(err){db.exec('ROLLBACK');throw err}
- }
+ // Legacy gift codes are disabled; all new gifts use authenticated server transfers.
+ if(url.pathname==='/api/game/gift/create'||url.pathname==='/api/game/gift/redeem')return error(res,410,'Geschenkcodes wurden abgeschaltet');
  if(req.method==='GET'&&url.pathname==='/api/me')return json(res,200,{user:publicUser(u)});
  if(req.method==='GET'&&url.pathname==='/api/friends')return json(res,200,{friends:all(`SELECT u.id,u.username AS name,u.xp,1+CAST(u.xp/3 AS INTEGER) AS level FROM friendship f JOIN users u ON u.id=CASE WHEN f.a=? THEN f.b ELSE f.a END WHERE f.a=? OR f.b=? ORDER BY u.xp DESC`,u.id,u.id,u.id)});
  if(req.method==='POST'&&url.pathname==='/api/friends/add'){
@@ -299,7 +308,7 @@ async function handler(req,res){try{
   try{
    // Remove non-cascading references before deleting the account.
    run('DELETE FROM game_gift_codes WHERE sender_id=? OR recipient_id=? OR redeemed_by=?',target.id,target.id,target.id);
-   run('DELETE FROM direct_gifts WHERE sender_id=? OR recipient_id=?',target.id,target.id);
+   run('DELETE FROM direct_gifts WHERE sender_id=? OR recipient_id=?',target.id,target.id);run('DELETE FROM gift_inventory WHERE user_id=?',target.id);
    run('DELETE FROM gifts WHERE recipient_id=? OR admin_id=?',target.id,target.id);
    run('DELETE FROM game_exercises WHERE run_id IN (SELECT id FROM game_runs WHERE user_id=?)',target.id);
    run('DELETE FROM game_runs WHERE user_id=?',target.id);
