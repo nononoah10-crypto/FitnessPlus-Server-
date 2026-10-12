@@ -834,4 +834,60 @@ window.addEventListener('click',async e=>{
   }catch{}finally{loading=false}
  }
  setTimeout(poll,1600);setInterval(poll,15000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)poll()});
+
+// FitnessPlus: gift sending without codes. Authenticated and server-authoritative.
+(()=>{
+ const esc=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+ const labels={boost2small:'2x Booster (3 Übungen)',boost2long:'2x Booster (8 Übungen)',boost3mega:'3x Booster (5 Übungen)'};
+ let friends=[],inventory=[],catalog={},loading=false,onlineDiamonds=0;
+ const request=async(method,url,data)=>{const r=await fetch(url,{method,credentials:'same-origin',cache:'no-store',headers:{'Content-Type':'application/json'},...(data?{body:JSON.stringify(data)}:{})});const x=await r.json();if(!r.ok)throw Error(x.error||'Serverfehler');return x};
+ async function reload(){if(loading||!window.FP76Online)return;loading=true;try{const [f,i,g]=await Promise.all([request('GET','/api/friends'),request('GET','/api/gifts/inventory'),request('GET','/api/game')]);friends=f.friends||[];inventory=i.inventory||[];catalog=i.catalog||{};onlineDiamonds=g.user?.diamonds??0;if(s.view==='gifts')render()}catch(e){toast(e.message)}finally{loading=false}}
+ const oldGiftScreen=giftScreen;
+ giftScreen=function(){
+  if(!window.FP76Online)return hdr('GESCHENKE','Direkt an Freunde senden')+'<div class="card"><b>Online anmelden</b><p>Geschenke werden nur noch sicher über den Server versendet. Bitte melde dich oben über „Anmelden“ an.</p><button class="primary" data-giftlogin="1">Anmelden</button></div>';
+  const opts=friends.map(f=>`<option value="${esc(f.id)}">${esc(f.name)}</option>`).join('');
+  const owned=inventory.filter(i=>i.quantity>0&&catalog[i.item]);
+  return hdr('GESCHENKE','Direkt an Freunde senden')+`<button class="btn" data-giftback="1">← Zurück</button>
+  <div class="card"><b>💎 Deine Diamanten: ${onlineDiamonds}</b><p class="sub">Wähle einen Freund und drücke auf Absenden. Es werden keine Codes benötigt.</p>
+  <label class="field">Freund auswählen</label><select class="input" id="giftFriendOnline"><option value="">Bitte auswählen</option>${opts}</select>
+  <label class="field">Was möchtest du senden?</label><select class="input" id="giftKindOnline"><option value="diamonds">💎 Diamanten</option><option value="inventory">🎁 Geschenk aus Inventar</option></select>
+  <label class="field">Diamantenanzahl</label><input class="input" id="giftAmountOnline" type="number" min="1" max="100000" value="10">
+  <label class="field">Inventargeschenk (bei Auswahl „Geschenk“)</label><select class="input" id="giftItemOnline">${owned.length?owned.map(i=>`<option value="${esc(i.item)}">${esc(labels[i.item]||i.item)} (${i.quantity} vorhanden)</option>`).join(''):'<option value="">Keine Geschenke vorhanden</option>'}</select>
+  <button class="primary" data-directsend="1">Absenden</button></div>
+  <div class="card"><b>🎁 Geschenk für dein Inventar kaufen</b><p class="sub">Diese Booster kannst du später verschenken oder selbst aktivieren.</p>
+  <select class="input" id="giftBuyOnline">${Object.keys(catalog).map(id=>`<option value="${esc(id)}">${esc(labels[id]||id)} · ${catalog[id].price} 💎</option>`).join('')}</select>
+  <button class="btn" data-inventorybuy="1">Für Inventar kaufen</button></div>
+  <div class="card"><b>🎒 Dein Inventar</b>${owned.length?owned.map(i=>`<div class="giftEntry"><span>${esc(labels[i.item]||i.item)} × ${i.quantity}</span> <button class="btn" data-inventoryactivate="${esc(i.item)}">Aktivieren</button></div>`).join(''):'<p class="sub">Noch keine Geschenke vorhanden.</p>'}</div>`;
+ };
+ const oldRender=render;
+ render=function(){oldRender();if(s.view==='gifts')document.querySelector('#page').innerHTML=giftScreen()};
+ window.addEventListener('click',async e=>{
+  const b=e.target.closest('button');if(!b)return;
+  if(b.dataset.giftmenu!==undefined){e.preventDefault();e.stopImmediatePropagation();s.view='gifts';render();await reload();return}
+  if(b.dataset.giftlogin!==undefined){e.preventDefault();e.stopImmediatePropagation();window.FitnessPlusOpenOnline?.();return}
+  if(b.dataset.directsend===undefined&&b.dataset.inventorybuy===undefined&&b.dataset.inventoryactivate===undefined)return;
+  e.preventDefault();e.stopImmediatePropagation();
+  if(!window.FP76Online){toast('Bitte zuerst anmelden');return}
+  try{
+   if(b.dataset.directsend!==undefined){
+    const friendId=document.querySelector('#giftFriendOnline')?.value,kind=document.querySelector('#giftKindOnline')?.value;
+    if(!friendId)throw Error('Bitte einen Freund auswählen');
+    const name=friends.find(f=>f.id===friendId)?.name||'Freund';
+    const payload=kind==='diamonds'?{friendId,kind,amount:Number(document.querySelector('#giftAmountOnline')?.value)}:{friendId,kind:'inventory',item:document.querySelector('#giftItemOnline')?.value};
+    if(!confirm('Geschenk wirklich an '+name+' senden?'))return;
+    await request('POST','/api/gifts/send',payload);toast('Geschenk an '+name+' gesendet!');
+   }else if(b.dataset.inventorybuy!==undefined){
+    const item=document.querySelector('#giftBuyOnline')?.value;if(!item)throw Error('Kein Geschenk ausgewählt');
+    if(!confirm('Für '+catalog[item].price+' Diamanten kaufen?'))return;
+    await request('POST','/api/gifts/inventory/buy',{item});toast('Geschenk ins Inventar gelegt!');
+   }else{
+    if(!confirm('Geschenk jetzt selbst aktivieren?'))return;
+    await request('POST','/api/gifts/inventory/activate',{item:b.dataset.inventoryactivate});toast('Booster aktiviert!');
+   }
+   await reload();window.FP76Refresh?.();
+  }catch(err){toast(err.message)}
+ },true);
+ setInterval(()=>{if(window.FP76Online&&s.view==='gifts'&&!loading)reload()},30000);
+})();
+
 })();
