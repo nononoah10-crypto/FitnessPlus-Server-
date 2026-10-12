@@ -448,19 +448,7 @@ function decodeGiftCode(code){
  const i=levelBoosters.find(x=>x.id===g.booster);if(!i)throw Error('Unbekannter Booster');
  return {...g,item:i};
 }
-function giftScreen(){
- const friendOpts=s.friends.map(f=>`<option value="${safe(f.name)}">${safe(f.name)} · Lv. ${levelNumber(Number(f.exercises))}</option>`).join('');
- return hdr('GESCHENKE','Freunden Power schenken.')+`<button class="btn" data-giftback="1">← Zum Diamanten Store</button>
- <section class="boosterHero"><div class="shopKicker">DEINE DIAMANTEN</div><div class="boosterBalance">💎 ${Math.floor(s.diamonds)}</div><div class="boosterStatus">🎁 Wähle ein Geschenk, teile den Code per Nachricht.</div></section>
- <div class="card"><b>🎁 Geschenk vorbereiten</b><p class="sub">Ein Level-Booster wird von deinen Diamanten bezahlt. Dein Freund aktiviert ihn mit dem Geschenkcode in seiner App.</p>
- <label class="field" for="giftFriend">Für wen?</label><select class="input" id="giftFriend"><option value="">Freund auswählen</option>${friendOpts}</select>
- <label class="field" for="giftBooster">Welchen Booster schenken?</label><select class="input" id="giftBooster">${levelBoosters.map(i=>`<option value="${i.id}">${i.emoji} ${safe(i.name)} · ${i.price} 💎</option>`).join('')}</select>
- <button class="primary" data-giftbuy="1">Geschenk kaufen und Code erzeugen</button></div>
- ${s.giftsSent.length?`<div class="card"><b>📤 Deine Geschenkcodes</b>${s.giftsSent.slice().reverse().slice(0,12).map(g=>{const i=levelBoosters.find(x=>x.id===g.booster);return `<div class="giftEntry"><div><b>${i?i.emoji+' '+safe(i.name):'Level-Booster'}</b><div class="sub">Für ${safe(g.to)} · ${safe(g.created)}</div></div><button class="btn" data-giftcopy="${safe(g.id)}">Code kopieren</button></div>`}).join('')}</div>`:''}
- <div class="card"><b>📥 Geschenk einlösen</b><p class="sub">Geschenkcode von einem Freund einfügen:</p><textarea class="input" id="giftCodeInput" rows="4" placeholder="FPG58-..."></textarea><button class="primary" data-giftredeem="1">Geschenk einlösen</button>
- ${s.giftsInbox.length?`<div class="sub" style="margin-top:10px">${s.giftsInbox.length} eingelöste Geschenk${s.giftsInbox.length===1?'':'e'} gespeichert</div>`:''}</div>
- <div class="shopNotice">Hinweis: Geschenkcodes werden ohne Online-Server übertragen. Sie lassen sich deshalb nicht sicher gegen Kopieren oder Manipulation schützen. Ein Code wird nur auf diesem Gerät als eingelöst markiert. Booster lassen sich erst aktivieren, wenn kein anderer Booster läuft.</div>`;
-}
+function giftScreen(){return hdr('GESCHENKE','Direkt an Freunde senden')+'<div class="card"><b>Geschenke werden geladen …</b></div>';}
 const renderBeforeGifts=render;
 render=function(){renderBeforeGifts();if(s.view==='gifts')$('#page').innerHTML=giftScreen()};
 function activateGiftIfReady(){
@@ -681,12 +669,12 @@ friendLinkPanel=function(){return `<div class="card"><b>👥 Freunde per Code hi
 function fp70GiftCode(g,label,type){return 'FPG7-'+fp70Label(label)+'-'+fp70Encode({v:1,type,id:g.id,to:g.to,from:g.from,amount:g.amount||0,booster:g.booster||'',created:g.created})}
 function fp70ReadGift(text){const m=String(text||'').trim().match(/^FPG7-([A-Z0-9]{3,18})-([A-Za-z0-9_-]+)$/i);if(!m)throw Error('Ungültiger Geschenk-Code.');const g=fp70Decode(m[2]);if(g.v!==1||!['diamonds','booster'].includes(g.type)||typeof g.id!=='string'||g.id.length<8||g.id.length>100||typeof g.to!=='string'||g.to.length>32||typeof g.from!=='string'||g.from.length>32)throw Error('Ungültiges Geschenk.');if(g.type==='diamonds'&&(!Number.isInteger(g.amount)||g.amount<1||g.amount>100000))throw Error('Ungültiger Betrag.');if(g.type==='booster'&&!levelBoosters.some(x=>x.id===g.booster))throw Error('Unbekannter Booster.');return g;}
 const fp70OldGiftScreen=giftScreen;
-giftScreen=function(){return fp70OldGiftScreen()+`<div class="card"><b>🔤 Geschenke mit Wunsch-Code</b><p class="sub">Booster oder Diamanten per Code einlösen. Der Code enthält den selbst gewählten Namen plus die Geschenkdetails.</p><textarea class="input" id="fp70GiftInput" rows="3" placeholder="FPG7-GESCHENK-..."></textarea><button class="primary" data-fp70giftredeem="1">Wunsch-Code einlösen</button></div>`};
+giftScreen=function(){return fp70OldGiftScreen()};
 function fp70GiftRedeem(g){const me=String(s.profile.nickname||'').trim();if(me!==g.to)throw Error('Geschenk ist für '+g.to+'. Profilnamen prüfen.');if(g.type==='diamonds'){s.devDiamondRedeemed=Array.isArray(s.devDiamondRedeemed)?s.devDiamondRedeemed:[];if(s.devDiamondRedeemed.includes(g.id))throw Error('Auf diesem Gerät schon eingelöst.');s.devDiamondRedeemed.push(g.id);s.diamonds+=g.amount;save();render();toast('+'+g.amount+' Diamanten erhalten!');return}
 if(s.giftsRedeemed.includes(g.id))throw Error('Auf diesem Gerät schon eingelöst.');s.giftsRedeemed.push(g.id);s.giftsInbox.push({id:g.id,booster:g.booster,from:g.from,activated:false});const active=activateGiftIfReady();save();render();toast(active?'Booster aktiviert!':'Booster als Geschenk gespeichert!')}
 // Store a user-chosen label per generated present; all transfers use codes.
 const fp70OriginalGift=giftScreen;
-giftScreen=function(){const h=fp70OriginalGift();return h.replace('<button class="primary" data-giftbuy="1">', '<label class="field">Geschenk-Code-Name (optional für Wunsch-Code)</label><input class="input" id="fp70BoosterLabel" maxlength="18" placeholder="z. B. POWER2026"><button class="primary" data-giftbuy="1">')};
+giftScreen=function(){return fp70OriginalGift()};
 // Add admin option to create a named offline code from each diamond gift.
 async function fp70Copy(v){try{await navigator.clipboard.writeText(v);toast('Code kopiert!')}catch(_){prompt('Code kopieren:',v)}}
 document.addEventListener('click',async e=>{const b=e.target.closest('button');if(!b)return;try{
@@ -847,20 +835,26 @@ window.addEventListener('click',async e=>{
   if(!window.FP76Online)return hdr('GESCHENKE','Direkt an Freunde senden')+'<div class="card"><b>Online anmelden</b><p>Geschenke werden nur noch sicher über den Server versendet. Bitte melde dich oben über „Anmelden“ an.</p><button class="primary" data-giftlogin="1">Anmelden</button></div>';
   const opts=friends.map(f=>`<option value="${esc(f.id)}">${esc(f.name)}</option>`).join('');
   const owned=inventory.filter(i=>i.quantity>0&&catalog[i.item]);
-  return hdr('GESCHENKE','Direkt an Freunde senden')+`<button class="btn" data-giftback="1">← Zurück</button>
-  <div class="card"><b>💎 Deine Diamanten: ${onlineDiamonds}</b><p class="sub">Wähle einen Freund und drücke auf Absenden. Es werden keine Codes benötigt.</p>
-  <label class="field">Freund auswählen</label><select class="input" id="giftFriendOnline"><option value="">Bitte auswählen</option>${opts}</select>
-  <label class="field">Was möchtest du senden?</label><select class="input" id="giftKindOnline"><option value="diamonds">💎 Diamanten</option><option value="inventory">🎁 Geschenk aus Inventar</option></select>
-  <label class="field">Diamantenanzahl</label><input class="input" id="giftAmountOnline" type="number" min="1" max="100000" value="10">
-  <label class="field">Inventargeschenk (bei Auswahl „Geschenk“)</label><select class="input" id="giftItemOnline">${owned.length?owned.map(i=>`<option value="${esc(i.item)}">${esc(labels[i.item]||i.item)} (${i.quantity} vorhanden)</option>`).join(''):'<option value="">Keine Geschenke vorhanden</option>'}</select>
-  <button class="primary" data-directsend="1">Absenden</button></div>
-  <div class="card"><b>🎁 Geschenk für dein Inventar kaufen</b><p class="sub">Diese Booster kannst du später verschenken oder selbst aktivieren.</p>
-  <select class="input" id="giftBuyOnline">${Object.keys(catalog).map(id=>`<option value="${esc(id)}">${esc(labels[id]||id)} · ${catalog[id].price} 💎</option>`).join('')}</select>
-  <button class="btn" data-inventorybuy="1">Für Inventar kaufen</button></div>
-  <div class="card"><b>🎒 Dein Inventar</b>${owned.length?owned.map(i=>`<div class="giftEntry"><span>${esc(labels[i.item]||i.item)} × ${i.quantity}</span> <button class="btn" data-inventoryactivate="${esc(i.item)}">Aktivieren</button></div>`).join(''):'<p class="sub">Noch keine Geschenke vorhanden.</p>'}</div>`;
+  return hdr('GESCHENKE','Direkt an Freunde senden')+`<button class="btn" data-giftback="1">← Zum Diamantenshop</button>
+  <section class="boosterHero"><div class="shopKicker">DEINE DIAMANTEN</div><div class="boosterBalance">💎 ${onlineDiamonds}</div><div class="boosterStatus">🎁 Geschenke gehen direkt an das Konto deines Freundes.</div></section>
+  <div class="card"><b>🎁 Geschenk senden</b><p class="sub">Freund auswählen, Geschenk auswählen und absenden. Kein Geschenk-Code nötig.</p>
+  <label class="field" for="giftFriendOnline">Für wen?</label><select class="input" id="giftFriendOnline"><option value="">Freund auswählen</option>${opts}</select>
+  <label class="field" for="giftKindOnline">Was möchtest du schenken?</label><select class="input" id="giftKindOnline"><option value="booster">⚡ Level-Booster kaufen und schenken</option><option value="diamonds">💎 Eigene Diamanten senden</option><option value="inventory">🎒 Vorhandenes Inventargeschenk senden</option></select>
+  <div id="giftBoosterRow"><label class="field" for="giftBoosterOnline">Welchen Booster schenken?</label><select class="input" id="giftBoosterOnline">${Object.keys(catalog).map(id=>`<option value="${esc(id)}">${esc(labels[id]||id)} · ${catalog[id].price} 💎</option>`).join('')}</select></div>
+  <div id="giftAmountRow" style="display:none"><label class="field" for="giftAmountOnline">Wie viele Diamanten?</label><input class="input" id="giftAmountOnline" type="number" min="1" max="100000" value="10"></div>
+  <div id="giftInventoryRow" style="display:none"><label class="field" for="giftItemOnline">Welches Inventargeschenk?</label><select class="input" id="giftItemOnline">${owned.length?owned.map(i=>`<option value="${esc(i.item)}">${esc(labels[i.item]||i.item)} (${i.quantity} vorhanden)</option>`).join(''):'<option value="">Keine Geschenke vorhanden</option>'}</select></div>
+  <button class="primary" data-directsend="1">Geschenk absenden</button></div>
+  <div class="card"><b>🎒 Dein Inventar</b><p class="sub">Booster, die du besitzt oder geschenkt bekommen hast.</p>${owned.length?owned.map(i=>`<div class="giftEntry"><span>${esc(labels[i.item]||i.item)} × ${i.quantity}</span> <button class="btn" data-inventoryactivate="${esc(i.item)}">Aktivieren</button></div>`).join(''):'<p class="sub">Noch keine Geschenke vorhanden.</p>'}</div>`;
  };
  const oldRender=render;
  render=function(){oldRender();if(s.view==='gifts')document.querySelector('#page').innerHTML=giftScreen()};
+ document.addEventListener('change',e=>{
+  if(e.target?.id!=='giftKindOnline')return;
+  const kind=e.target.value;
+  for(const [id,show] of [['giftBoosterRow',kind==='booster'],['giftAmountRow',kind==='diamonds'],['giftInventoryRow',kind==='inventory']]){
+   const el=document.getElementById(id);if(el)el.style.display=show?'':'none';
+  }
+ });
  window.addEventListener('click',async e=>{
   const b=e.target.closest('button');if(!b)return;
   if(b.dataset.giftmenu!==undefined){e.preventDefault();e.stopImmediatePropagation();s.view='gifts';render();await reload();return}
@@ -873,7 +867,7 @@ window.addEventListener('click',async e=>{
     const friendId=document.querySelector('#giftFriendOnline')?.value,kind=document.querySelector('#giftKindOnline')?.value;
     if(!friendId)throw Error('Bitte einen Freund auswählen');
     const name=friends.find(f=>f.id===friendId)?.name||'Freund';
-    const payload=kind==='diamonds'?{friendId,kind,amount:Number(document.querySelector('#giftAmountOnline')?.value)}:{friendId,kind:'inventory',item:document.querySelector('#giftItemOnline')?.value};
+    const payload=kind==='diamonds'?{friendId,kind,amount:Number(document.querySelector('#giftAmountOnline')?.value)}:kind==='booster'?{friendId,kind,item:document.querySelector('#giftBoosterOnline')?.value}:{friendId,kind:'inventory',item:document.querySelector('#giftItemOnline')?.value};
     if(!confirm('Geschenk wirklich an '+name+' senden?'))return;
     await request('POST','/api/gifts/send',payload);toast('Geschenk an '+name+' gesendet!');
    }else if(b.dataset.inventorybuy!==undefined){
