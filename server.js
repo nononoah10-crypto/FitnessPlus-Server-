@@ -48,6 +48,30 @@ function sameOrigin(req){const origin=req.headers.origin;if(!origin)return true;
 function audit(actor,subject,action,detail=''){run('INSERT INTO audit VALUES(?,?,?,?,?,?)',uid(),actor,subject,action,String(detail),Date.now())}
 const mime={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.png':'image/png','.webmanifest':'application/manifest+json','.json':'application/json; charset=utf-8','.txt':'text/plain; charset=utf-8'};
 function staticFile(req,res,url){let file=decodeURIComponent(url.pathname);if(file==='/' )file='/index.html';let abs=path.resolve(WEB,'.'+file);if(!abs.startsWith(WEB+path.sep))return error(res,403,'Unzulässiger Pfad');let ext=path.extname(abs);if(!mime[ext]||path.basename(abs).startsWith('.'))return error(res,404,'Nicht gefunden');fs.readFile(abs,(err,data)=>{if(err)return error(res,404,'Nicht gefunden');res.writeHead(200,{'content-type':mime[ext],'x-content-type-options':'nosniff','cache-control':ext==='.html'||ext==='.js'||ext==='.json'?'no-cache':'public, max-age=3600'});res.end(data)})}
+
+// Einmalige, serverseitig geschuetzte Admin-Einrichtung.
+// Der geheime Link wird nur in Render-Logs ausgegeben und nie im Repository gespeichert.
+const ADMIN_OWNER='__fitnessplus_owner__';
+const adminSetupToken=crypto.randomBytes(32).toString('hex');
+function isAdminReady(){return !!q('SELECT value FROM settings WHERE key=?','admin_setup_complete')}
+function setupTokenOK(token){
+ if(typeof token!=='string'||token.length!==adminSetupToken.length)return false;
+ return crypto.timingSafeEqual(Buffer.from(token),Buffer.from(adminSetupToken));
+}
+function ownerUser(){return q('SELECT * FROM users WHERE username=?',ADMIN_OWNER)}
+function createOwner(code){
+ db.exec('BEGIN IMMEDIATE');
+ try{
+  if(isAdminReady())throw Error('Bereits eingerichtet');
+  const existing=ownerUser();
+  if(existing)throw Error('Administratoreinrichtung ist bereits vorhanden');
+  const salt=random(16);
+  run('INSERT INTO users(id,username,passhash,salt,role,friend_code,created_at) VALUES(?,?,?,?,?,?,?)',uid(),ADMIN_OWNER,hashPass(code,salt),salt,'admin','FP-'+random(8).toUpperCase(),Date.now());
+  run('INSERT INTO settings(key,value) VALUES(?,?)','admin_setup_complete','1');
+  db.exec('COMMIT');
+ }catch(err){db.exec('ROLLBACK');throw err}
+}
+
 async function handler(req,res){try{
  const url=new URL(req.url,'http://localhost');
  if(!url.pathname.startsWith('/api/')){if(!['GET','HEAD'].includes(req.method))return error(res,405,'Nur GET');return staticFile(req,res,url)}
@@ -55,6 +79,32 @@ async function handler(req,res){try{
  if(req.method!=='GET'&&!sameOrigin(req))return error(res,403,'Herkunft nicht erlaubt');
  if(['POST','PUT'].includes(req.method)&&req.headers['content-type']?.split(';')[0]!=='application/json')return error(res,415,'JSON erforderlich');
  const data=['POST','PUT'].includes(req.method)?await body(req):{};
+  if(req.method==='GET'&&url.pathname==='/api/admin-code/status')return json(res,200,{configured:isAdminReady()});
+  if(req.method==='POST'&&url.pathname==='/api/admin-code/setup'){
+   if(isAdminReady())return error(res,409,'Der einmalige Einrichtungslink ist bereits verbraucht');
+   const code=String(data.code||'');
+   if(!setupTokenOK(data.token))return error(res,403,'Einrichtungslink ungueltig oder abgelaufen');
+   if(code.length<10||code.length>128)return error(res,400,'Passwort muss 10 bis 128 Zeichen lang sein');
+   try{createOwner(code)}catch(err){return error(res,409,err.message)}
+   return startSession(res,ownerUser());
+  }
+  if(req.method==='POST'&&url.pathname==='/api/admin-code/login'){
+   if(!isAdminReady())return error(res,403,'Admin wurde noch nicht eingerichtet');
+   const owner=ownerUser();
+   if(!owner||typeof data.code!=='string'||!authPass(owner,data.code))return error(res,401,'Passwort falsch');
+   return startSession(res,owner);
+  }
+  if(req.method==='POST'&&url.pathname==='/api/admin-code/change'){
+   const owner=ownerUser(),oldCode=data.oldCode,newCode=data.newCode;
+   const active=session(req);
+   if(!owner||!active||active.id!==owner.id)return error(res,403,'Bitte als Administrator anmelden');
+   if(typeof oldCode!=='string'||!authPass(owner,oldCode))return error(res,401,'Altes Passwort falsch');
+   if(typeof newCode!=='string'||newCode.length<10||newCode.length>128)return error(res,400,'Neues Passwort: 10 bis 128 Zeichen');
+   const salt=random(16);run('UPDATE users SET passhash=?,salt=? WHERE id=?',hashPass(newCode,salt),salt,owner.id);
+   run('DELETE FROM sessions WHERE user_id=?',owner.id);cookie(res,'',true);
+   return json(res,200,{ok:true});
+  }
+
  if(req.method==='POST'&&url.pathname==='/api/register'){
   if(!validName(data.name)||typeof data.password!=='string'||data.password.length<10||data.password.length>128)return error(res,400,'Name (3–24 Zeichen) und Passwort (mind. 10 Zeichen) erforderlich');
   const id=uid(),salt=random(16),code='FP-'+random(8).toUpperCase();try{run('INSERT INTO users(id,username,passhash,salt,role,friend_code,created_at) VALUES(?,?,?,?,?,?,?)',id,data.name,hashPass(data.password,salt),salt,'user',code,Date.now())}catch{return error(res,409,'Benutzername bereits vergeben')}return startSession(res,q('SELECT * FROM users WHERE id=?',id));
@@ -63,44 +113,6 @@ async function handler(req,res){try{
   const u=typeof data.name==='string'?q('SELECT * FROM users WHERE username=?',data.name):null;
   if(!u||typeof data.password!=='string'||!authPass(u,data.password))return error(res,401,'Login fehlgeschlagen');return startSession(res,u)
  }
-  // One-time setup inside the admin app, using the existing server admin account.
-  if(req.method==='GET'&&url.pathname==='/api/admin-code/status')return json(res,200,{configured:!!q('SELECT 1 FROM settings WHERE key=?','admin_code_hash')});
-  if(req.method==='POST'&&url.pathname==='/api/admin-code/setup'){
-   if(q('SELECT 1 FROM settings WHERE key=?','admin_code_hash'))return error(res,409,'Admin-Code ist bereits eingerichtet');
-   const code=String(data.code||'');
-   if(!/^\d{6,12}$/.test(code))return error(res,400,'Code muss aus 6 bis 12 Ziffern bestehen');
-   const ip=req.socket.remoteAddress||'unknown',key='pin-setup:'+ip,now=Date.now();
-   const b=bucket.get(key)||{count:0,until:now+15*60000};
-   if(now>b.until){b.count=0;b.until=now+15*60000}
-   b.count++;bucket.set(key,b);
-   if(b.count>8)return error(res,429,'Zu viele Versuche. Bitte in 15 Minuten erneut versuchen');
-   const existing=session(req);
-   let admin=existing?.role==='admin'?existing:null;
-   if(!admin){
-    admin=typeof data.name==='string'?q('SELECT * FROM users WHERE username=?',data.name):null;
-    if(!admin||admin.role!=='admin'||typeof data.password!=='string'||!authPass(admin,data.password))return error(res,403,'Admin-Konto konnte nicht bestätigt werden');
-   }
-   const salt=random(16),hashed=hashPass(code,salt);
-   const inserted=run('INSERT OR IGNORE INTO settings(key,value) VALUES(?,?)','admin_code_hash',JSON.stringify({salt,hashed}));
-   if(!inserted.changes)return error(res,409,'Code ist bereits eingerichtet');
-   b.count=0;
-   audit(admin.id,admin.id,'admin_code_setup');return startSession(res,admin);
-  }
-  if(req.method==='POST'&&url.pathname==='/api/admin-code/login'){
-   const row=q('SELECT value FROM settings WHERE key=?','admin_code_hash');
-   if(!row)return error(res,409,'Admin-Code noch nicht eingerichtet');
-   const c=String(data.code||'');const ip=req.socket.remoteAddress||'unknown';const key='admin-code:'+ip;
-   const now=Date.now(),b=bucket.get(key)||{count:0,until:now+15*60000};
-   if(now>b.until){b.count=0;b.until=now+15*60000}
-   b.count++;bucket.set(key,b);
-   if(b.count>8)return error(res,429,'Zu viele Versuche. Bitte in 15 Minuten erneut versuchen');
-   const saved=JSON.parse(row.value),candidate=hashPass(c,saved.salt);
-   if(!crypto.timingSafeEqual(Buffer.from(candidate,'hex'),Buffer.from(saved.hashed,'hex')))return error(res,401,'Code nicht korrekt');
-   b.count=0;
-   const admin=q('SELECT * FROM users WHERE role=? ORDER BY created_at LIMIT 1','admin');
-   if(!admin)return error(res,503,'Admin-Konto auf dem Server fehlt');
-   return startSession(res,admin);
-  }
  const u=session(req);if(!u)return error(res,401,'Bitte anmelden');
  if(req.method==='POST'&&url.pathname==='/api/logout'){const tok=cookies(req).fp_session;run('DELETE FROM sessions WHERE token_hash=?',crypto.createHash('sha256').update(tok).digest('hex'));cookie(res,'',true);return json(res,200,{ok:true})}
  if(req.method==='GET'&&url.pathname==='/api/state'){
@@ -286,18 +298,6 @@ async function handler(req,res){try{
  if(req.method==='GET'&&url.pathname==='/api/announcements')return json(res,200,{message:JSON.parse(q('SELECT value FROM settings WHERE key=?','announcement')?.value||'null')});
  if(req.method==='GET'&&url.pathname==='/api/events')return json(res,200,{events:JSON.parse(q('SELECT value FROM settings WHERE key=?','events')?.value||'{}')});
  if(u.role!=='admin')return error(res,403,'Nur Administrator');
-  if(req.method==='POST'&&url.pathname==='/api/admin-code/change'){
-   const old=String(data.oldCode||''),next=String(data.newCode||'');
-   if(!/^\d{6,12}$/.test(next))return error(res,400,'Neuer Code: 6 bis 12 Ziffern');
-   const savedRow=q('SELECT value FROM settings WHERE key=?','admin_code_hash');
-   if(!savedRow)return error(res,409,'Noch kein Admin-Code eingerichtet');
-   const saved=JSON.parse(savedRow.value);
-   const candidate=hashPass(old,saved.salt);
-   if(!crypto.timingSafeEqual(Buffer.from(candidate,'hex'),Buffer.from(saved.hashed,'hex')))return error(res,403,'Bisheriger Code ist falsch');
-   const salt=random(16);run('UPDATE settings SET value=? WHERE key=?',JSON.stringify({salt,hashed:hashPass(next,salt)}),'admin_code_hash');
-   run('DELETE FROM sessions WHERE user_id=?',u.id);cookie(res,'',true);
-   audit(u.id,u.id,'admin_code_change');return json(res,200,{ok:true});
-  }
  if(req.method==='GET'&&url.pathname==='/api/admin/users')return json(res,200,{users:all('SELECT id,username AS name,diamonds,xp,role,1+CAST(xp/3 AS INTEGER) AS level FROM users ORDER BY username LIMIT 500')});
  if(req.method==='POST'&&url.pathname==='/api/admin/diamonds'){
   const v=Number(data.amount),target=q('SELECT * FROM users WHERE id=?',String(data.userId||''));if(!target||!Number.isSafeInteger(v)||v<1||v>100000)return error(res,400,'Ungültiger Empfänger/Betrag');
@@ -344,4 +344,7 @@ async function handler(req,res){try{
  }catch(e){console.error(e);error(res,e.message==='Eingabe zu groß'||e.message==='Ungültiges JSON'?400:500,e.message==='Eingabe zu groß'||e.message==='Ungültiges JSON'?e.message:'Serverfehler')}}
 // Initial admin is created only when explicitly configured via environment variables.
 if(process.env.ADMIN_NAME&&process.env.ADMIN_PASSWORD){const name=process.env.ADMIN_NAME,pass=process.env.ADMIN_PASSWORD;if(!validName(name)||pass.length<12)throw Error('ADMIN_NAME (3–24 Zeichen) und ADMIN_PASSWORD (mind. 12 Zeichen) prüfen');const existing=q('SELECT * FROM users WHERE username=?',name);if(!existing){let salt=random(16);run('INSERT INTO users(id,username,passhash,salt,role,friend_code,created_at) VALUES(?,?,?,?,?,?,?)',uid(),name,hashPass(pass,salt),salt,'admin','FP-'+random(8).toUpperCase(),Date.now());console.log('Admin-Konto eingerichtet')}else if(existing.role!=='admin')throw Error('ADMIN_NAME ist bereits vergeben');}
-const server=http.createServer(handler);server.listen(PORT,HOST,()=>console.log(`FitnessPlus Server: http://localhost:${PORT} (Datenbank: ${DBPATH})`));
+const server=http.createServer(handler);server.listen(PORT,HOST,()=>{
+ console.log(`FitnessPlus Server: http://localhost:${PORT} (Datenbank: ${DBPATH})`);
+ if(!isAdminReady())console.log('FITNESSPLUS EINMALIGER EINRICHTUNGSLINK: https://fitnessplus-server.onrender.com/admin-setup.html#'+adminSetupToken);
+});
