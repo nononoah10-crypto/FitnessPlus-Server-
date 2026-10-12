@@ -39,6 +39,20 @@ function json(res,status,data){const body=JSON.stringify(data);res.writeHead(sta
 function error(res,status,msg){json(res,status,{error:msg})}
 function cookies(req){const result={};for(const c of (req.headers.cookie||'').split(';')){const ix=c.indexOf('=');if(ix>-1)result[c.slice(0,ix).trim()]=c.slice(ix+1).trim()}return result}
 function session(req){const token=cookies(req).fp_session;if(!token)return null;const th=crypto.createHash('sha256').update(token).digest('hex');return q('SELECT u.* FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=? AND s.expires_at>?',th,Date.now())||null}
+// Separate, persistent admin-device cookie, signed using the Render environment secret.
+// Enrollment requires the secret once; no admin password is stored in SQLite.
+const deviceAdminSecret=process.env.FITNESSPLUS_ADMIN_PASSWORD||'';
+function deviceAdminValid(req){
+ if(deviceAdminSecret.length<10)return false;
+ const supplied=cookies(req).fp_admin_device||'';
+ const expected=crypto.createHmac('sha256',deviceAdminSecret).update('fitnessplus-admin-device-v1').digest('hex');
+ return supplied.length===expected.length&&crypto.timingSafeEqual(Buffer.from(supplied),Buffer.from(expected));
+}
+function setDeviceAdminCookie(res){
+ const value=crypto.createHmac('sha256',deviceAdminSecret).update('fitnessplus-admin-device-v1').digest('hex');
+ res.setHeader('Set-Cookie',`fp_admin_device=${value}; HttpOnly; Secure; SameSite=Strict; Path=/api/; Max-Age=31536000`);
+}
+function adminSession(req){return deviceAdminValid(req)?{id:'device-admin',username:'FitnessPlus Admin',role:'admin'}:session(req)}
 function cookie(res,token,expire=false){const secure=process.env.NODE_ENV==='production'?'; Secure':'';res.setHeader('Set-Cookie',`fp_session=${token||''}; HttpOnly; SameSite=Lax; Path=/; ${expire?'Max-Age=0':'Max-Age=604800'}${secure}`)}
 async function body(req){let raw='';for await(const chunk of req){raw+=chunk;if(raw.length>1600000)throw new Error('Eingabe zu groß')}try{return raw?JSON.parse(raw):{}}catch{throw new Error('Ungültiges JSON')}}
 function validName(s){return typeof s==='string'&&/^[\p{L}\p{N}_-]{3,24}$/u.test(s)}
