@@ -63,37 +63,33 @@ async function handler(req,res){try{
   const u=typeof data.name==='string'?q('SELECT * FROM users WHERE username=?',data.name):null;
   if(!u||typeof data.password!=='string'||!authPass(u,data.password))return error(res,401,'Login fehlgeschlagen');return startSession(res,u)
  }
-  // Separate Admin-App: initial PIN setup requires the Render bootstrap secret.
-  const adminAccount=()=>process.env.ADMIN_NAME?q('SELECT * FROM users WHERE username=? AND role=?',process.env.ADMIN_NAME,'admin'):null;
-  const pinRow=()=>q('SELECT value FROM settings WHERE key=?','admin_pin_v1');
-  const validPin=p=>typeof p==='string'&&/^[0-9]{6,12}$/.test(p);
-  const pinDigest=(p,salt)=>crypto.scryptSync(p,salt,64).toString('hex');
-  if(req.method==='GET'&&url.pathname==='/api/admin/pin-status')return json(res,200,{configured:!!pinRow()});
-  if(req.method==='POST'&&url.pathname==='/api/admin/pin-setup'){
-   const admin=adminAccount();
-   if(pinRow())return error(res,409,'Admin-Code bereits eingerichtet');
-   if(!admin||!process.env.ADMIN_PASSWORD||typeof data.bootstrapPassword!=='string'||data.bootstrapPassword!==process.env.ADMIN_PASSWORD)return error(res,403,'Einrichtung nicht autorisiert');
-   if(!validPin(data.pin))return error(res,400,'Code muss aus 6 bis 12 Ziffern bestehen');
-   const salt=random(24),value=JSON.stringify({salt,hash:pinDigest(data.pin,salt)});
-   run('INSERT INTO settings(key,value) VALUES(?,?)','admin_pin_v1',value);
-   audit(admin.id,admin.id,'admin_pin_setup');return startSession(res,admin);
+  // Secret admin code: setup requires a separate server-side bootstrap secret.
+  if(req.method==='GET'&&url.pathname==='/api/admin-code/status')return json(res,200,{configured:!!q('SELECT 1 FROM settings WHERE key=?','admin_code_hash')});
+  if(req.method==='POST'&&url.pathname==='/api/admin-code/setup'){
+   const secret=process.env.ADMIN_SETUP_KEY||'';
+   const candidate=String(data.setupKey||''),code=String(data.code||'');
+   if(!secret||secret.length<16)return error(res,503,'ADMIN_SETUP_KEY fehlt oder ist zu kurz (mindestens 16 Zeichen)');
+   if(candidate.length!==secret.length||!crypto.timingSafeEqual(Buffer.from(candidate),Buffer.from(secret)))return error(res,403,'Einrichtung nicht autorisiert');
+   if(!/^[\x21-\x7e]{8,64}$/.test(code))return error(res,400,'Code: 8 bis 64 Zeichen ohne Leerzeichen');
+   const salt=random(16),hashed=hashPass(code,salt);
+   const inserted=run('INSERT OR IGNORE INTO settings(key,value) VALUES(?,?)','admin_code_hash',JSON.stringify({salt,hashed}));
+   if(!inserted.changes)return error(res,409,'Code ist bereits eingerichtet');
+   audit('setup','admin','admin_code_setup');return json(res,200,{ok:true});
   }
-  if(req.method==='POST'&&url.pathname==='/api/admin/pin-login'){
-   const admin=adminAccount(),entry=pinRow();
-   if(!admin||!entry||!validPin(data.pin))return error(res,401,'Code ungültig');
-   const {salt,hash}=JSON.parse(entry.value);
-   if(!crypto.timingSafeEqual(Buffer.from(pinDigest(data.pin,salt),'hex'),Buffer.from(hash,'hex')))return error(res,401,'Code ungültig');
+  if(req.method==='POST'&&url.pathname==='/api/admin-code/login'){
+   const row=q('SELECT value FROM settings WHERE key=?','admin_code_hash');
+   if(!row)return error(res,409,'Admin-Code noch nicht eingerichtet');
+   const c=String(data.code||'');const ip=req.socket.remoteAddress||'unknown';const key='admin-code:'+ip;
+   const now=Date.now(),b=bucket.get(key)||{count:0,until:now+15*60000};
+   if(now>b.until){b.count=0;b.until=now+15*60000}
+   b.count++;bucket.set(key,b);
+   if(b.count>8)return error(res,429,'Zu viele Versuche. Bitte in 15 Minuten erneut versuchen');
+   const saved=JSON.parse(row.value),candidate=hashPass(c,saved.salt);
+   if(!crypto.timingSafeEqual(Buffer.from(candidate,'hex'),Buffer.from(saved.hashed,'hex')))return error(res,401,'Code nicht korrekt');
+   b.count=0;
+   const admin=q('SELECT * FROM users WHERE role=? ORDER BY created_at LIMIT 1','admin');
+   if(!admin)return error(res,503,'Admin-Konto auf dem Server fehlt');
    return startSession(res,admin);
-  }
-  if(req.method==='POST'&&url.pathname==='/api/admin/pin-change'){
-   const actor=session(req),entry=pinRow();
-   if(!actor||actor.role!=='admin'||!entry)return error(res,403,'Nicht autorisiert');
-   const {salt,hash}=JSON.parse(entry.value);
-   if(!validPin(data.oldPin)||!crypto.timingSafeEqual(Buffer.from(pinDigest(data.oldPin,salt),'hex'),Buffer.from(hash,'hex')))return error(res,403,'Bisheriger Code falsch');
-   if(!validPin(data.newPin))return error(res,400,'Neuer Code muss aus 6 bis 12 Ziffern bestehen');
-   const nextSalt=random(24);
-   run('UPDATE settings SET value=? WHERE key=?',JSON.stringify({salt:nextSalt,hash:pinDigest(data.newPin,nextSalt)}),'admin_pin_v1');
-   audit(actor.id,actor.id,'admin_pin_change');return json(res,200,{ok:true});
   }
  const u=session(req);if(!u)return error(res,401,'Bitte anmelden');
  if(req.method==='POST'&&url.pathname==='/api/logout'){const tok=cookies(req).fp_session;run('DELETE FROM sessions WHERE token_hash=?',crypto.createHash('sha256').update(tok).digest('hex'));cookie(res,'',true);return json(res,200,{ok:true})}
@@ -280,6 +276,18 @@ async function handler(req,res){try{
  if(req.method==='GET'&&url.pathname==='/api/announcements')return json(res,200,{message:JSON.parse(q('SELECT value FROM settings WHERE key=?','announcement')?.value||'null')});
  if(req.method==='GET'&&url.pathname==='/api/events')return json(res,200,{events:JSON.parse(q('SELECT value FROM settings WHERE key=?','events')?.value||'{}')});
  if(u.role!=='admin')return error(res,403,'Nur Administrator');
+  if(req.method==='POST'&&url.pathname==='/api/admin-code/change'){
+   const old=String(data.oldCode||''),next=String(data.newCode||'');
+   if(!/^[\x21-\x7e]{8,64}$/.test(next))return error(res,400,'Neuer Code: 8 bis 64 Zeichen ohne Leerzeichen');
+   const savedRow=q('SELECT value FROM settings WHERE key=?','admin_code_hash');
+   if(!savedRow)return error(res,409,'Noch kein Admin-Code eingerichtet');
+   const saved=JSON.parse(savedRow.value);
+   const candidate=hashPass(old,saved.salt);
+   if(!crypto.timingSafeEqual(Buffer.from(candidate,'hex'),Buffer.from(saved.hashed,'hex')))return error(res,403,'Bisheriger Code ist falsch');
+   const salt=random(16);run('UPDATE settings SET value=? WHERE key=?',JSON.stringify({salt,hashed:hashPass(next,salt)}),'admin_code_hash');
+   run('DELETE FROM sessions WHERE user_id=?',u.id);cookie(res,'',true);
+   audit(u.id,u.id,'admin_code_change');return json(res,200,{ok:true});
+  }
  if(req.method==='GET'&&url.pathname==='/api/admin/users')return json(res,200,{users:all('SELECT id,username AS name,diamonds,xp,role,1+CAST(xp/3 AS INTEGER) AS level FROM users ORDER BY username LIMIT 500')});
  if(req.method==='POST'&&url.pathname==='/api/admin/diamonds'){
   const v=Number(data.amount),target=q('SELECT * FROM users WHERE id=?',String(data.userId||''));if(!target||!Number.isSafeInteger(v)||v<1||v>100000)return error(res,400,'Ungültiger Empfänger/Betrag');
@@ -325,5 +333,5 @@ async function handler(req,res){try{
  error(res,404,'Endpunkt nicht gefunden');
  }catch(e){console.error(e);error(res,e.message==='Eingabe zu groß'||e.message==='Ungültiges JSON'?400:500,e.message==='Eingabe zu groß'||e.message==='Ungültiges JSON'?e.message:'Serverfehler')}}
 // Initial admin is created only when explicitly configured via environment variables.
-if(process.env.ADMIN_NAME&&process.env.ADMIN_PASSWORD){const name=process.env.ADMIN_NAME,pass=process.env.ADMIN_PASSWORD;if(!validName(name)||pass.length<12)throw Error('ADMIN_NAME (3–24 Zeichen) und ADMIN_PASSWORD (mind. 12 Zeichen) prüfen');const existing=q('SELECT * FROM users WHERE username=?',name);if(!existing){let salt=random(16);run('INSERT INTO users(id,username,passhash,salt,role,friend_code,created_at) VALUES(?,?,?,?,?,?,?)',uid(),name,hashPass(pass,salt),salt,'admin','FP-'+random(8).toUpperCase(),Date.now());console.log('Admin-Konto eingerichtet')}else if(existing.role!=='admin')throw Error('ADMIN_NAME ist bereits vergeben');else if(!authPass(existing,pass)){const salt=random(16);run('UPDATE users SET passhash=?,salt=? WHERE id=?',hashPass(pass,salt),salt,existing.id);}}
+if(process.env.ADMIN_NAME&&process.env.ADMIN_PASSWORD){const name=process.env.ADMIN_NAME,pass=process.env.ADMIN_PASSWORD;if(!validName(name)||pass.length<12)throw Error('ADMIN_NAME (3–24 Zeichen) und ADMIN_PASSWORD (mind. 12 Zeichen) prüfen');const existing=q('SELECT * FROM users WHERE username=?',name);if(!existing){let salt=random(16);run('INSERT INTO users(id,username,passhash,salt,role,friend_code,created_at) VALUES(?,?,?,?,?,?,?)',uid(),name,hashPass(pass,salt),salt,'admin','FP-'+random(8).toUpperCase(),Date.now());console.log('Admin-Konto eingerichtet')}else if(existing.role!=='admin')throw Error('ADMIN_NAME ist bereits vergeben');}
 const server=http.createServer(handler);server.listen(PORT,HOST,()=>console.log(`FitnessPlus Server: http://localhost:${PORT} (Datenbank: ${DBPATH})`));
