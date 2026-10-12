@@ -234,6 +234,15 @@ async function handler(req,res){try{
  if(req.method==='POST'&&url.pathname==='/api/gifts/send'){
   const friendId=String(data.friendId||''),kind=String(data.kind||'');
   if(friendId===u.id||!q('SELECT 1 FROM friendship WHERE (a=? AND b=?) OR (a=? AND b=?)',u.id,friendId,friendId,u.id))return error(res,403,'Nur an Freunde senden');
+  if(kind==='booster'){
+   const item=String(data.item||''),b=boostCatalog[item];if(!b)return error(res,400,'Unbekannter Booster');
+   db.exec('BEGIN IMMEDIATE');try{
+    if(!run('UPDATE users SET diamonds=diamonds-? WHERE id=? AND diamonds>=?',b.price,u.id,b.price).changes){db.exec('ROLLBACK');return error(res,400,'Nicht genug Diamanten')}
+    run('INSERT INTO gift_inventory(user_id,item,quantity) VALUES(?,?,1) ON CONFLICT(user_id,item) DO UPDATE SET quantity=quantity+1',friendId,item);
+    audit(u.id,friendId,'friend_booster',item);
+    db.exec('COMMIT');return json(res,200,{ok:true,user:publicUser(q('SELECT * FROM users WHERE id=?',u.id))});
+   }catch(err){db.exec('ROLLBACK');throw err}
+  }
   if(kind==='diamonds'){
    const amount=Number(data.amount);if(!Number.isSafeInteger(amount)||amount<1||amount>100000)return error(res,400,'Ungültige Diamantenanzahl');
    db.exec('BEGIN IMMEDIATE');try{
