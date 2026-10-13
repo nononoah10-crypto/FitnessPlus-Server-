@@ -1028,3 +1028,66 @@ window.addEventListener('click',async e=>{
 })();
 
 })();
+
+
+// FitnessPlus: online friendships are mutual and must be read from the server.
+(()=>{
+ 'use strict';
+ const oldFriendsScreen=friendsScreen;
+ let onlineFriends=[],loaded=false,loading=false,problem='',lastFetch=0;
+ const escapeName=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+ const isOnline=()=>!!window.FP76Online;
+ const fetchFriends=async(force=false)=>{
+  if(!isOnline()||loading||(!force&&loaded&&Date.now()-lastFetch<15000))return;
+  loading=true;
+  try{
+   const r=await fetch('/api/friends',{credentials:'same-origin',cache:'no-store'});
+   const j=await r.json().catch(()=>({}));
+   if(!r.ok)throw Error(j.error||'Serverfehler');
+   onlineFriends=Array.isArray(j.friends)?j.friends:[];
+   loaded=true;problem='';lastFetch=Date.now();
+  }catch(err){problem='Freunde konnten nicht geladen werden: '+err.message}
+  finally{loading=false;if(s.view==='friends'&&isOnline())render()}
+ };
+ friendsScreen=function(){
+  if(!isOnline())return oldFriendsScreen();
+  const entries=onlineFriends.map(f=>'<div class="card friendCard"><div class="row"><div class="friendAvatar">'+escapeName(String(f.name||'?').slice(0,1).toUpperCase())+'</div><div class="grow"><b>'+escapeName(f.name)+'</b><div class="sub">Level '+(Number(f.level)||1)+'</div></div><button class="btn danger" data-onlinefriendremove="'+escapeName(f.id)+'">Entfernen</button></div></div>').join('');
+  return hdr('FREUNDE','Deine Online-Freundesliste')+
+   '<div class="card"><div class="row"><div><b>👥 Meine Freunde</b><div class="sub">'+(loaded?onlineFriends.length+' Freunde · für beide Spieler sichtbar':'Lade Freunde vom Server …')+'</div></div><button class="btn" data-onlinefriendrefresh="1">↻ Aktualisieren</button></div>'+(problem?'<p class="sub" role="alert">'+escapeName(problem)+'</p>':'')+'</div>'+
+   (entries||'<div class="card"><p class="sub">'+(loaded?'Noch keine Online-Freunde.':'Freundesliste wird geladen …')+'</p></div>')+
+   '<div class="card"><b>Freund hinzufügen</b><p class="sub">Gib den genauen FitnessPlus-Benutzernamen ein. Die Freundschaft erscheint automatisch bei euch beiden.</p><label class="field" for="onlineFriendName">Benutzername</label><input class="input" id="onlineFriendName" autocomplete="off" placeholder="Benutzername"><button class="primary" data-onlinefriendadd="1">Freund hinzufügen</button></div>';
+ };
+ const originalRender=render;
+ render=function(){
+  if(s.view==='friends'&&isOnline()&&!loading&&(!loaded||Date.now()-lastFetch>15000))queueMicrotask(()=>fetchFriends());
+  originalRender();
+ };
+ window.addEventListener('click',async e=>{
+  const b=e.target.closest?.('button');if(!b||!isOnline())return;
+  if(b.dataset.onlinefriendrefresh!==undefined){e.preventDefault();e.stopImmediatePropagation();await fetchFriends(true);return}
+  if(b.dataset.onlinefriendadd!==undefined){
+   e.preventDefault();e.stopImmediatePropagation();
+   const name=document.getElementById('onlineFriendName')?.value.trim();
+   if(!name){toast('Bitte Benutzernamen eingeben');return}
+   b.disabled=true;
+   try{
+    const r=await fetch('/api/friends/add-name',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({name})});
+    const j=await r.json().catch(()=>({}));if(!r.ok)throw Error(j.error||'Freund konnte nicht hinzugefügt werden');
+    await fetchFriends(true);toast('Freundschaft für beide Spieler gespeichert!');
+   }catch(err){toast(err.message)}finally{b.disabled=false}
+   return;
+  }
+  if(b.dataset.onlinefriendremove!==undefined){
+   e.preventDefault();e.stopImmediatePropagation();
+   if(!confirm('Freundschaft für beide Spieler entfernen?'))return;
+   b.disabled=true;
+   try{
+    const r=await fetch('/api/friends/remove',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({userId:b.dataset.onlinefriendremove})});
+    const j=await r.json().catch(()=>({}));if(!r.ok)throw Error(j.error||'Entfernen fehlgeschlagen');
+    await fetchFriends(true);toast('Freundschaft entfernt');
+   }catch(err){toast(err.message)}finally{b.disabled=false}
+  }
+ },true);
+ document.addEventListener('visibilitychange',()=>{if(!document.hidden&&s.view==='friends'&&isOnline())fetchFriends(true)});
+ window.addEventListener('message',e=>{if(e.origin===location.origin&&e.data?.type==='fitnessplus-session-changed'){loaded=false;if(s.view==='friends')fetchFriends(true)}});
+})();
