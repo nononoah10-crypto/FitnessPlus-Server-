@@ -264,10 +264,10 @@ async function handler(req,res){try{
   return json(res,200,{gifts:[...items,...diamonds].sort((a,b)=>b.createdAt-a.createdAt).slice(0,100)});
  }
  if(req.method==='POST'&&url.pathname==='/api/gifts/send'){
-  const item=String(data.item||''),b=boostCatalog[item],friendId=String(data.friendId||''),kind=String(data.kind||'booster');
+  const item=String(data.item||''),b=boostCatalog[item],friendId=String(data.friendId||''),kind=String(data.kind||'');
   const amount=Number(data.amount);
   if(kind==='diamonds'){if(!Number.isSafeInteger(amount)||amount<1||amount>100000)return error(res,400,'Ungültige Diamantenanzahl');}
-  else if(kind!=='booster'||!b)return error(res,400,'Unbekannter Booster');
+  else return error(res,400,'Es können nur Diamanten verschenkt werden');
   if(friendId===u.id||!q('SELECT 1 FROM friendship WHERE (a=? AND b=?) OR (a=? AND b=?)',u.id,friendId,friendId,u.id))return error(res,403,'Nur an Freunde senden');
   db.exec('BEGIN IMMEDIATE');try{
    if(kind==='diamonds'){
