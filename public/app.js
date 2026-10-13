@@ -361,7 +361,7 @@ function friendsScreen(){
  const friends=[...s.friends].sort((a,b)=>Number(b.exercises)-Number(a.exercises)||a.name.localeCompare(b.name,'de'));
  return hdr('DEINE FREUNDE','Gemeinsam stärker.')+
  `<div class="card"><div class="row"><div><b>👥 Freundesliste</b><div class="sub">${friends.length} ${friends.length===1?'Freund':'Freunde'} gespeichert</div></div><button class="btn" data-action="openLevels">🏆 Rangliste</button></div></div>`+
- (friends.length?friends.map((f,i)=>`<div class="card friendCard"><div class="row"><div class="friendAvatar">${safe(String(f.name||'?').slice(0,1).toUpperCase())}</div><div class="grow"><b>${safe(f.name)}</b><div class="sub">Level ${levelNumber(Number(f.exercises))} · ${Number(f.exercises)} Übungen</div><div class="friendMiniTrack"><div style="width:${Number(f.exercises)%3/3*100}%"></div></div></div><button class="btn danger" data-removefriend="${safe(f.name)}" aria-label="${safe(f.name)} entfernen">Entfernen</button></div></div>`).join(''):`<div class="card"><b>Noch keine Freunde</b><p class="sub">Lass dir einen Freundes-Link schicken und öffne ihn.</p></div>`)+
+ (friends.length?friends.map((f,i)=>`<div class="card friendCard"><div class="row"><div class="friendAvatar">${safe(String(f.name||'?').slice(0,1).toUpperCase())}</div><div class="grow"><b>${safe(f.name)}</b><div class="sub">Level ${levelNumber(Number(f.exercises))} · ${Number(f.exercises)} Übungen</div><div class="friendMiniTrack"><div style="width:${Number(f.exercises)%3/3*100}%"></div></div></div><button class="btn" data-connectfriend="${safe(f.name)}">Für Geschenke verbinden</button><button class="btn danger" data-removefriend="${safe(f.name)}" aria-label="${safe(f.name)} entfernen">Entfernen</button></div></div>`).join(''):`<div class="card"><b>Noch keine Freunde</b><p class="sub">Lass dir einen Freundes-Link schicken und öffne ihn.</p></div>`)+
  friendLinkPanel()+
  `<p class="sub">Die Liste bleibt auf deinem Gerät gespeichert. Für einen aktuellen Levelstand öffnen Freunde einfach einen neuen Einladungslink.</p>`;
 }
@@ -370,7 +370,7 @@ home=function(){return homeBeforeLevels()+`<div class="card"><div class="row"><d
 const progressBeforeLevels=progress;
 progress=function(){if(s.view==='friends')return friendsScreen();if(s.view==='levels')return levelsScreen();return `<div class="card"><div class="row"><div><b>🏆 Level ${levelNumber()}</b><div class="sub">Vergleiche dich mit deinen Freunden</div></div><button class="btn" data-action="openFriends">Freundesliste →</button></div></div>`+progressBeforeLevels()};
 // Capture these new actions before the original click handler.
-document.addEventListener('click',e=>{
+document.addEventListener('click',async e=>{
  const b=e.target.closest('button');if(!b)return;
  if(b.dataset.action==='openFriends'){e.preventDefault();e.stopImmediatePropagation();s.view='friends';s.tab='progress';render();return}
  if(b.dataset.action==='openLevels'){
@@ -379,6 +379,22 @@ document.addEventListener('click',e=>{
  if(b.dataset.friendcopy){e.preventDefault();e.stopImmediatePropagation();copyFriendLink();return}
  if(b.dataset.friendshare){e.preventDefault();e.stopImmediatePropagation();shareFriendLink();return}
  if(b.dataset.friendbase){e.preventDefault();e.stopImmediatePropagation();const input=String($('#friendBaseInput')?.value||'').trim();try{if(input&&!/^https?:$/.test(new URL(input).protocol))throw Error('URL');if(input)localStorage.setItem('fitnessplus-friend-base',input);else localStorage.removeItem('fitnessplus-friend-base');render();toast('App-Adresse gespeichert!')}catch(_){toast('Bitte vollständige https://-Adresse eingeben.')}return}
+ if(b.dataset.connectfriend!==undefined){
+  e.preventDefault();e.stopImmediatePropagation();
+  const suggested=b.dataset.connectfriend;
+  const name=prompt('Wie lautet der genaue FitnessPlus-Benutzername deines Freundes auf dem Online-Server?',suggested);
+  if(name===null)return;
+  if(!name.trim()){toast('Bitte einen Benutzernamen eingeben.');return}
+  b.disabled=true;
+  try{
+   const response=await fetch('/api/friends/add-name',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:name.trim()})});
+   const result=await response.json();
+   if(!response.ok)throw Error(result.error||'Verbindung fehlgeschlagen');
+   toast('Freund ist jetzt auch für Geschenke verbunden!');
+  }catch(err){toast('Online-Verbindung fehlgeschlagen: '+err.message)}
+  finally{b.disabled=false}
+  return;
+ }
  if(b.dataset.removefriend){e.preventDefault();e.stopImmediatePropagation();s.friends=s.friends.filter(x=>x.name!==b.dataset.removefriend);save();render();toast('Freund entfernt');return}
 },true);
 // Extend backups with level history and manual friend ranking.
