@@ -9,19 +9,20 @@
  function giftPage(){return /Geschenke werden geladen|Direkt an Freunde senden|Geschenk senden/.test(page.textContent||'')&&(/GESCHENKE|Geschenke/i.test(page.textContent||''));}
  function template(message=''){
   return `<div class="card" id="fpGiftForm"><b>🎁 Geschenk an Freunde senden</b><p class="sub">${message?esc(message):'Dein Guthaben: 💎 '+balance+' · Keine Geschenk-Codes'}</p>
-  <label class="field" for="fpGiftFriend">Freund auswählen</label><select class="input" id="fpGiftFriend"><option value="">Bitte auswählen</option>${friends.map(f=>`<option value="${esc(f.id)}">${esc(f.name)}</option>`).join('')}</select>
+  <div id="fpGiftFriendHelp" style="${friends.length?'display:none':''}"><p class="sub">Deine Online-Freundesliste ist noch leer. Falls dein Freund nur in der bisherigen Freundesliste steht, füge ihn hier einmal mit seinem Benutzernamen oder Freundes-Code hinzu.</p><label class="field" for="fpGiftFriendName">Benutzername oder Freundes-Code</label><input class="input" id="fpGiftFriendName" placeholder="Name oder FP-..."><button class="btn" type="button" id="fpGiftAddFriend">Freund für Geschenke hinzufügen</button></div><label class="field" for="fpGiftFriend">Freund auswählen</label><select class="input" id="fpGiftFriend"><option value="">Bitte auswählen</option>${friends.map(f=>`<option value="${esc(f.id)}">${esc(f.name)}</option>`).join('')}</select>
   <label class="field" for="fpGiftKind">Was möchtest du verschenken?</label><select class="input" id="fpGiftKind"><option value="diamonds">💎 Diamanten</option><option value="booster">🎁 Item aus dem Item-Shop</option></select>
   <div id="fpGiftDiamonds"><label class="field" for="fpGiftAmount">Anzahl Diamanten</label><input class="input" id="fpGiftAmount" type="number" inputmode="numeric" min="1" max="100000" value="10"></div>
   <div id="fpGiftItems" style="display:none"><label class="field" for="fpGiftItem">Item auswählen</label><select class="input" id="fpGiftItem">${Object.entries(catalog).map(([id,v])=>`<option value="${esc(id)}">${esc(labels[id]||id)} · ${Number(v.price)||0} 💎</option>`).join('')}</select></div>
   <button class="primary" type="button" id="fpGiftSend">Geschenk absenden</button><p class="sub" id="fpGiftStatus" aria-live="polite"></p></div>`;
  }
  function paint(msg=''){if(!giftPage())return;showing=true;page.innerHTML=`<div class="section">GESCHENKE</div><h1>Direkt an Freunde senden</h1><button class="btn" type="button" id="fpGiftBack">← Zum Diamantenshop</button>`+template(msg);showing=false}
- async function load(){if(loading||!giftPage())return;loading=true;paint('Freunde und Shop werden geladen ...');try{const [f,i,g]=await Promise.all([request('GET','/api/friends'),request('GET','/api/gifts/inventory'),request('GET','/api/game')]);friends=f.friends||[];catalog=i.catalog||{};balance=g.user?.diamonds??0;paint(friends.length?'':'Du hast noch keine Freunde hinzugefügt.');}catch(e){paint(e.message==='Bitte anmelden'?'Bitte zuerst oben auf „Anmelden“ tippen.':'Laden fehlgeschlagen: '+e.message)}finally{loading=false;lastLoad=Date.now()}}
+ async function load(){if(loading||!giftPage())return;loading=true;paint('Freunde und Shop werden geladen ...');try{const [f,i,g]=await Promise.all([request('GET','/api/friends'),request('GET','/api/gifts/inventory'),request('GET','/api/game')]);friends=f.friends||[];catalog=i.catalog||{};balance=g.user?.diamonds??0;paint(friends.length?'':'Noch keine Freunde auf dem Online-Server gefunden.');}catch(e){paint(e.message==='Bitte anmelden'?'Bitte zuerst oben auf „Anmelden“ tippen.':'Laden fehlgeschlagen: '+e.message)}finally{loading=false;lastLoad=Date.now()}}
  const observer=new MutationObserver(()=>{if(showing||loading)return;if(giftPage()&&!page.querySelector('#fpGiftForm'))load()});observer.observe(page,{childList:true,subtree:false});
  document.addEventListener('change',e=>{if(e.target?.id!=='fpGiftKind')return;const item=e.target.value==='booster';document.getElementById('fpGiftItems').style.display=item?'':'none';document.getElementById('fpGiftDiamonds').style.display=item?'none':''});
  window.addEventListener('click',async e=>{
   const b=e.target.closest('button');if(!b)return;
-  if(b.id==='fpGiftBack'){e.preventDefault();e.stopImmediatePropagation();const legacy=document.createElement('button');legacy.dataset.giftback='1';legacy.style.display='none';document.body.append(legacy);legacy.click();legacy.remove();return}
+   if(b.id==='fpGiftAddFriend'){e.preventDefault();e.stopImmediatePropagation();const input=document.getElementById('fpGiftFriendName');const value=input?.value.trim()||'';const status=document.getElementById('fpGiftStatus');if(!value){status.textContent='Bitte Benutzernamen oder Freundes-Code eingeben.';return}b.disabled=true;try{const isCode=value.toUpperCase().startsWith('FP-');await request('POST',isCode?'/api/friends/add':'/api/friends/add-name',isCode?{code:value}:{name:value});status.textContent='Freund hinzugefügt.';lastLoad=0;await load()}catch(err){status.textContent='Freund konnte nicht hinzugefügt werden: '+err.message}finally{b.disabled=false}return}
+  if(b.id==='fpGiftBack'){e.preventDefault();e.stopImmediatePropagation();if(typeof window.showPage==='function'){window.showPage('shop')}else{history.back()}return}
   if(b.id!=='fpGiftSend')return;e.preventDefault();e.stopImmediatePropagation();if(b.disabled)return;
   const status=document.getElementById('fpGiftStatus'),friendId=document.getElementById('fpGiftFriend')?.value,kind=document.getElementById('fpGiftKind')?.value;
   if(!friendId){status.textContent='Bitte einen Freund auswählen.';return}
@@ -35,6 +36,7 @@
   try{await request('POST','/api/gifts/send',kind==='diamonds'?{friendId,kind,amount}:{friendId,kind:'booster',item});status.textContent='🎉 Geschenk erfolgreich an '+friend.name+' gesendet!';const g=await request('GET','/api/game');balance=g.user?.diamonds??balance;}
   catch(err){status.textContent='Fehler: '+err.message}finally{b.disabled=false}
  },true);
- setInterval(()=>{if(giftPage()&&!loading&&Date.now()-lastLoad>15000)load()},15000);
+ // Do not repaint while the player is choosing a friend or entering an amount.
+ document.addEventListener('visibilitychange',()=>{if(!document.hidden&&giftPage()&&!loading&&Date.now()-lastLoad>60000)load()});
  if(giftPage())load();
 })();
