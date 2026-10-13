@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS game_season_claims (user_id TEXT NOT NULL REFERENCES 
 CREATE TABLE IF NOT EXISTS game_event_claims (user_id TEXT NOT NULL REFERENCES users(id), event_id TEXT NOT NULL, diamonds INTEGER NOT NULL, PRIMARY KEY(user_id,event_id));
 CREATE TABLE IF NOT EXISTS game_gift_codes (id TEXT PRIMARY KEY, code_hash TEXT NOT NULL UNIQUE, sender_id TEXT NOT NULL REFERENCES users(id), recipient_id TEXT REFERENCES users(id), item TEXT NOT NULL, created_at INTEGER NOT NULL, redeemed_at INTEGER, redeemed_by TEXT REFERENCES users(id));`);
 db.exec(`CREATE TABLE IF NOT EXISTS direct_gifts (id TEXT PRIMARY KEY, sender_id TEXT NOT NULL REFERENCES users(id), recipient_id TEXT NOT NULL REFERENCES users(id), item TEXT NOT NULL, created_at INTEGER NOT NULL, claimed_at INTEGER);`);
-db.exec(`CREATE TABLE IF NOT EXISTS gift_inventory (user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, item TEXT NOT NULL, quantity INTEGER NOT NULL DEFAULT 0 CHECK(quantity>=0), PRIMARY KEY(user_id,item));`);
+db.exec(`CREATE TABLE IF NOT EXISTS direct_diamond_gifts (id TEXT PRIMARY KEY, sender_id TEXT NOT NULL REFERENCES users(id), recipient_id TEXT NOT NULL REFERENCES users(id), amount INTEGER NOT NULL CHECK(amount>0), created_at INTEGER NOT NULL);`);
 function currentEvent(){return JSON.parse(q('SELECT value FROM settings WHERE key=?','events')?.value||'{}')}
 function eventId(e){return String(e.updatedAt||0)}
 function seasonTiers(){return [{at:3,diamonds:10},{at:10,diamonds:25},{at:25,diamonds:60},{at:50,diamonds:120}]}
@@ -40,19 +40,6 @@ function json(res,status,data){const body=JSON.stringify(data);res.writeHead(sta
 function error(res,status,msg){json(res,status,{error:msg})}
 function cookies(req){const result={};for(const c of (req.headers.cookie||'').split(';')){const ix=c.indexOf('=');if(ix>-1)result[c.slice(0,ix).trim()]=c.slice(ix+1).trim()}return result}
 function session(req){const token=cookies(req).fp_session;if(!token)return null;const th=crypto.createHash('sha256').update(token).digest('hex');return q('SELECT u.* FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=? AND s.expires_at>?',th,Date.now())||null}
-// Only a device with the private random credential matching the Render-held hash can administer.
-// The hash must be entered manually in Render. No SQLite enrollment state is trusted.
-const adminDeviceHash=(process.env.FITNESSPLUS_ADMIN_DEVICE_HASH||'').trim().toLowerCase();
-const validAdminConfig=/^[a-f0-9]{64}$/.test(adminDeviceHash);
-function deviceAdminValid(req){
- const credential=cookies(req).fp_admin_device||'';
- if(!validAdminConfig||!/^[a-f0-9]{64}$/.test(credential))return false;
- const actual=crypto.createHash('sha256').update(credential,'utf8').digest('hex');
- return crypto.timingSafeEqual(Buffer.from(actual,'hex'),Buffer.from(adminDeviceHash,'hex'));
-}
-function setDeviceAdminCookie(res,credential){
- res.setHeader('Set-Cookie',`fp_admin_device=${credential}; HttpOnly; Secure; SameSite=Strict; Path=/api/; Max-Age=31536000`);
-}
 function cookie(res,token,expire=false){const secure=process.env.NODE_ENV==='production'?'; Secure':'';res.setHeader('Set-Cookie',`fp_session=${token||''}; HttpOnly; SameSite=Lax; Path=/; ${expire?'Max-Age=0':'Max-Age=604800'}${secure}`)}
 async function body(req){let raw='';for await(const chunk of req){raw+=chunk;if(raw.length>1600000)throw new Error('Eingabe zu groß')}try{return raw?JSON.parse(raw):{}}catch{throw new Error('Ungültiges JSON')}}
 function validName(s){return typeof s==='string'&&/^[\p{L}\p{N}_-]{3,24}$/u.test(s)}
@@ -62,7 +49,6 @@ function sameOrigin(req){const origin=req.headers.origin;if(!origin)return true;
 function audit(actor,subject,action,detail=''){run('INSERT INTO audit VALUES(?,?,?,?,?,?)',uid(),actor,subject,action,String(detail),Date.now())}
 const mime={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.png':'image/png','.webmanifest':'application/manifest+json','.json':'application/json; charset=utf-8','.txt':'text/plain; charset=utf-8'};
 function staticFile(req,res,url){let file=decodeURIComponent(url.pathname);if(file==='/' )file='/index.html';let abs=path.resolve(WEB,'.'+file);if(!abs.startsWith(WEB+path.sep))return error(res,403,'Unzulässiger Pfad');let ext=path.extname(abs);if(!mime[ext]||path.basename(abs).startsWith('.'))return error(res,404,'Nicht gefunden');fs.readFile(abs,(err,data)=>{if(err)return error(res,404,'Nicht gefunden');res.writeHead(200,{'content-type':mime[ext],'x-content-type-options':'nosniff','cache-control':ext==='.html'||ext==='.js'||ext==='.json'?'no-cache':'public, max-age=3600'});res.end(data)})}
-
 async function handler(req,res){try{
  const url=new URL(req.url,'http://localhost');
  if(!url.pathname.startsWith('/api/')){if(!['GET','HEAD'].includes(req.method))return error(res,405,'Nur GET');return staticFile(req,res,url)}
@@ -70,21 +56,6 @@ async function handler(req,res){try{
  if(req.method!=='GET'&&!sameOrigin(req))return error(res,403,'Herkunft nicht erlaubt');
  if(['POST','PUT'].includes(req.method)&&req.headers['content-type']?.split(';')[0]!=='application/json')return error(res,415,'JSON erforderlich');
  const data=['POST','PUT'].includes(req.method)?await body(req):{};
-  if(req.method==='GET'&&url.pathname==='/api/admin-device/status')
-   return json(res,200,{available:validAdminConfig,authorized:deviceAdminValid(req)});
-  if(req.method==='POST'&&url.pathname==='/api/admin-device/activate'){
-   if(!validAdminConfig)return error(res,403,'Zuerst FITNESSPLUS_ADMIN_DEVICE_HASH in Render eintragen.');
-   const code=String(data.code||'');
-   if(!/^[a-f0-9]{64}$/.test(code))return error(res,403,'Geraeteschluessel ungueltig');
-   const hash=crypto.createHash('sha256').update(code,'utf8').digest('hex');
-   if(!crypto.timingSafeEqual(Buffer.from(hash,'hex'),Buffer.from(adminDeviceHash,'hex')))
-    return error(res,403,'Dieses Geraet ist nicht freigegeben');
-   setDeviceAdminCookie(res,code);
-   return json(res,200,{ok:true});
-  }
-  // Retired legacy administrator endpoints cannot create an alternative administrator.
-  if(url.pathname.startsWith('/api/admin-code/'))return error(res,410,'Alte Admin-Anmeldung deaktiviert');
-
  if(req.method==='POST'&&url.pathname==='/api/register'){
   if(!validName(data.name)||typeof data.password!=='string'||data.password.length<10||data.password.length>128)return error(res,400,'Name (3–24 Zeichen) und Passwort (mind. 10 Zeichen) erforderlich');
   const id=uid(),salt=random(16),code='FP-'+random(8).toUpperCase();try{run('INSERT INTO users(id,username,passhash,salt,role,friend_code,created_at) VALUES(?,?,?,?,?,?,?)',id,data.name,hashPass(data.password,salt),salt,'user',code,Date.now())}catch{return error(res,409,'Benutzername bereits vergeben')}return startSession(res,q('SELECT * FROM users WHERE id=?',id));
@@ -93,11 +64,7 @@ async function handler(req,res){try{
   const u=typeof data.name==='string'?q('SELECT * FROM users WHERE username=?',data.name):null;
   if(!u||typeof data.password!=='string'||!authPass(u,data.password))return error(res,401,'Login fehlgeschlagen');return startSession(res,u)
  }
-   const adminPath=url.pathname.startsWith('/api/admin/');
-  const deviceAdmin=deviceAdminValid(req);
-  if(adminPath&&!deviceAdmin)return error(res,403,'Dieses Geraet hat keine Adminfreigabe');
-  const u=(adminPath||(deviceAdmin&&url.pathname==='/api/events'))?{id:'device-admin',username:'FitnessPlus Admin',role:'admin'}:session(req);
-  if(!u)return error(res,401,'Bitte anmelden');
+ const u=session(req);if(!u)return error(res,401,'Bitte anmelden');
  if(req.method==='POST'&&url.pathname==='/api/logout'){const tok=cookies(req).fp_session;run('DELETE FROM sessions WHERE token_hash=?',crypto.createHash('sha256').update(tok).digest('hex'));cookie(res,'',true);return json(res,200,{ok:true})}
  if(req.method==='GET'&&url.pathname==='/api/state'){
   const row=q('SELECT revision,payload,updated_at FROM cloud_state WHERE user_id=?',u.id);
@@ -218,58 +185,27 @@ async function handler(req,res){try{
   return json(res,200,{ok:true,friend:{id:friend.id,name:friend.username}});
  }
  if(req.method==='GET'&&url.pathname==='/api/gifts/inbox'){
-  return json(res,200,{gifts:all('SELECT g.id,g.item,g.created_at AS createdAt,u.username AS sender FROM direct_gifts g JOIN users u ON u.id=g.sender_id WHERE g.recipient_id=? AND g.claimed_at IS NULL ORDER BY g.created_at DESC LIMIT 50',u.id)});
- }
- if(req.method==='GET'&&url.pathname==='/api/gifts/inventory'){
-  return json(res,200,{inventory:all('SELECT item,quantity FROM gift_inventory WHERE user_id=? AND quantity>0',u.id),catalog:boostCatalog});
- }
- if(req.method==='POST'&&url.pathname==='/api/gifts/inventory/buy'){
-  const item=String(data.item||''),b=boostCatalog[item];if(!b)return error(res,400,'Unbekanntes Geschenk');
-  db.exec('BEGIN IMMEDIATE');try{
-   if(!run('UPDATE users SET diamonds=diamonds-? WHERE id=? AND diamonds>=?',b.price,u.id,b.price).changes){db.exec('ROLLBACK');return error(res,400,'Nicht genug Diamanten')}
-   run('INSERT INTO gift_inventory(user_id,item,quantity) VALUES(?,?,1) ON CONFLICT(user_id,item) DO UPDATE SET quantity=quantity+1',u.id,item);
-   db.exec('COMMIT');return json(res,200,{ok:true,user:publicUser(q('SELECT * FROM users WHERE id=?',u.id))});
-  }catch(err){db.exec('ROLLBACK');throw err}
+  const items=all('SELECT g.id,g.item,g.created_at AS createdAt,g.claimed_at AS claimedAt,u.username AS sender FROM direct_gifts g JOIN users u ON u.id=g.sender_id WHERE g.recipient_id=? ORDER BY g.created_at DESC LIMIT 100',u.id).map(g=>({...g,kind:'booster'}));
+  const diamonds=all('SELECT g.id,g.amount,g.created_at AS createdAt,u.username AS sender FROM direct_diamond_gifts g JOIN users u ON u.id=g.sender_id WHERE g.recipient_id=? ORDER BY g.created_at DESC LIMIT 100',u.id).map(g=>({...g,kind:'diamonds',claimedAt:g.createdAt}));
+  return json(res,200,{gifts:[...items,...diamonds].sort((a,b)=>b.createdAt-a.createdAt).slice(0,100)});
  }
  if(req.method==='POST'&&url.pathname==='/api/gifts/send'){
-  const friendId=String(data.friendId||''),kind=String(data.kind||'');
+  const item=String(data.item||''),b=boostCatalog[item],friendId=String(data.friendId||''),kind=String(data.kind||'booster');
+  const amount=Number(data.amount);
+  if(kind==='diamonds'){if(!Number.isSafeInteger(amount)||amount<1||amount>100000)return error(res,400,'Ungültige Diamantenanzahl');}
+  else if(kind!=='booster'||!b)return error(res,400,'Unbekannter Booster');
   if(friendId===u.id||!q('SELECT 1 FROM friendship WHERE (a=? AND b=?) OR (a=? AND b=?)',u.id,friendId,friendId,u.id))return error(res,403,'Nur an Freunde senden');
-  if(kind==='booster'){
-   const item=String(data.item||''),b=boostCatalog[item];if(!b)return error(res,400,'Unbekannter Booster');
-   db.exec('BEGIN IMMEDIATE');try{
-    if(!run('UPDATE users SET diamonds=diamonds-? WHERE id=? AND diamonds>=?',b.price,u.id,b.price).changes){db.exec('ROLLBACK');return error(res,400,'Nicht genug Diamanten')}
-    run('INSERT INTO gift_inventory(user_id,item,quantity) VALUES(?,?,1) ON CONFLICT(user_id,item) DO UPDATE SET quantity=quantity+1',friendId,item);
-    audit(u.id,friendId,'friend_booster',item);
-    db.exec('COMMIT');return json(res,200,{ok:true,user:publicUser(q('SELECT * FROM users WHERE id=?',u.id))});
-   }catch(err){db.exec('ROLLBACK');throw err}
-  }
-  if(kind==='diamonds'){
-   const amount=Number(data.amount);if(!Number.isSafeInteger(amount)||amount<1||amount>100000)return error(res,400,'Ungültige Diamantenanzahl');
-   db.exec('BEGIN IMMEDIATE');try{
-    if(!run('UPDATE users SET diamonds=diamonds-? WHERE id=? AND diamonds>=?',amount,u.id,amount).changes){db.exec('ROLLBACK');return error(res,400,'Nicht genug Diamanten')}
-    run('UPDATE users SET diamonds=diamonds+? WHERE id=?',amount,friendId);
-    audit(u.id,friendId,'friend_diamonds',amount);
-    db.exec('COMMIT');return json(res,200,{ok:true,user:publicUser(q('SELECT * FROM users WHERE id=?',u.id))});
-   }catch(err){db.exec('ROLLBACK');throw err}
-  }
-  if(kind==='inventory'){
-   const item=String(data.item||'');if(!boostCatalog[item])return error(res,400,'Unbekanntes Geschenk');
-   db.exec('BEGIN IMMEDIATE');try{
-    if(!run('UPDATE gift_inventory SET quantity=quantity-1 WHERE user_id=? AND item=? AND quantity>0',u.id,item).changes){db.exec('ROLLBACK');return error(res,400,'Dieses Geschenk ist nicht in deinem Inventar')}
-    run('INSERT INTO gift_inventory(user_id,item,quantity) VALUES(?,?,1) ON CONFLICT(user_id,item) DO UPDATE SET quantity=quantity+1',friendId,item);
-    audit(u.id,friendId,'friend_inventory',item);
-    db.exec('COMMIT');return json(res,200,{ok:true});
-   }catch(err){db.exec('ROLLBACK');throw err}
-  }
-  return error(res,400,'Bitte Diamanten oder Inventargeschenk auswählen');
- }
- if(req.method==='POST'&&url.pathname==='/api/gifts/inventory/activate'){
-  const item=String(data.item||''),b=boostCatalog[item];if(!b)return error(res,400,'Unbekanntes Geschenk');
   db.exec('BEGIN IMMEDIATE');try{
-   if(q('SELECT uses FROM game_boosters WHERE user_id=?',u.id)?.uses>0){db.exec('ROLLBACK');return error(res,409,'Bitte zuerst deinen aktiven Booster aufbrauchen')}
-   if(!run('UPDATE gift_inventory SET quantity=quantity-1 WHERE user_id=? AND item=? AND quantity>0',u.id,item).changes){db.exec('ROLLBACK');return error(res,400,'Geschenk nicht vorhanden')}
-   run('INSERT INTO game_boosters(user_id,multiplier,uses) VALUES(?,?,?) ON CONFLICT(user_id) DO UPDATE SET multiplier=excluded.multiplier,uses=excluded.uses',u.id,b.multiplier,b.uses);
-   db.exec('COMMIT');return json(res,200,{ok:true,booster:{multiplier:b.multiplier,uses:b.uses}});
+   if(kind==='diamonds'){
+    if(!run('UPDATE users SET diamonds=diamonds-? WHERE id=? AND diamonds>=?',amount,u.id,amount).changes){db.exec('ROLLBACK');return error(res,400,'Nicht genug Diamanten')}
+    if(!run('UPDATE users SET diamonds=diamonds+? WHERE id=?',amount,friendId).changes){db.exec('ROLLBACK');return error(res,404,'Empfänger nicht gefunden')}
+    run('INSERT INTO direct_diamond_gifts(id,sender_id,recipient_id,amount,created_at) VALUES(?,?,?,?,?)',uid(),u.id,friendId,amount,Date.now());
+   }else{
+    if(!run('UPDATE users SET diamonds=diamonds-? WHERE id=? AND diamonds>=?',b.price,u.id,b.price).changes){db.exec('ROLLBACK');return error(res,400,'Nicht genug Diamanten')}
+    run('INSERT INTO direct_gifts(id,sender_id,recipient_id,item,created_at) VALUES(?,?,?,?,?)',uid(),u.id,friendId,item,Date.now());
+   }
+   db.exec('COMMIT');
+   return json(res,200,{ok:true,user:publicUser(q('SELECT * FROM users WHERE id=?',u.id))});
   }catch(err){db.exec('ROLLBACK');throw err}
  }
  if(req.method==='POST'&&url.pathname==='/api/gifts/claim'){
@@ -285,8 +221,33 @@ async function handler(req,res){try{
    db.exec('COMMIT');return json(res,200,{ok:true,booster:{multiplier:b.multiplier,uses:b.uses}});
   }catch(err){db.exec('ROLLBACK');throw err}
  }
- // Legacy gift codes are disabled; all new gifts use authenticated server transfers.
- if(url.pathname==='/api/game/gift/create'||url.pathname==='/api/game/gift/redeem')return error(res,410,'Geschenkcodes wurden abgeschaltet');
+ if(req.method==='POST'&&url.pathname==='/api/game/gift/create'){
+  const item=String(data.item||''),boost=boostCatalog[item],recipientCode=String(data.friendCode||'').trim();
+  if(!boost)return error(res,400,'Unbekannter Geschenk-Booster');
+  const receiver=q('SELECT * FROM users WHERE friend_code=?',recipientCode);
+  if(!receiver||receiver.id===u.id)return error(res,404,'Empfänger nicht gefunden');
+  const code='FPG-'+random(18),hashed=crypto.createHash('sha256').update(code).digest('hex');
+  db.exec('BEGIN IMMEDIATE');try{
+   let debit=run('UPDATE users SET diamonds=diamonds-? WHERE id=? AND diamonds>=?',boost.price,u.id,boost.price);
+   if(!debit.changes){db.exec('ROLLBACK');return error(res,400,'Nicht genug Diamanten')}
+   run('INSERT INTO game_gift_codes(id,code_hash,sender_id,recipient_id,item,created_at) VALUES(?,?,?,?,?,?)',uid(),hashed,u.id,receiver.id,item,Date.now());db.exec('COMMIT');
+   return json(res,200,{ok:true,code,recipient:receiver.username,item,user:publicUser(q('SELECT * FROM users WHERE id=?',u.id))});
+  }catch(err){db.exec('ROLLBACK');throw err}
+ }
+ if(req.method==='POST'&&url.pathname==='/api/game/gift/redeem'){
+  const code=String(data.code||'').trim();if(!/^FPG-[\w-]{20,40}$/.test(code))return error(res,400,'Ungültiger Online-Geschenkcode');
+  const hashed=crypto.createHash('sha256').update(code).digest('hex');
+  db.exec('BEGIN IMMEDIATE');try{
+   const gift=q('SELECT * FROM game_gift_codes WHERE code_hash=?',hashed);
+   if(!gift||gift.recipient_id!==u.id||gift.redeemed_at){db.exec('ROLLBACK');return error(res,404,'Code ungültig, bereits eingelöst oder nicht für dich')}
+   const active=q('SELECT uses FROM game_boosters WHERE user_id=?',u.id);
+   if(active?.uses>0){db.exec('ROLLBACK');return error(res,409,'Bitte zuerst deinen aktiven Booster aufbrauchen')}
+   const b=boostCatalog[gift.item];if(!b){db.exec('ROLLBACK');return error(res,400,'Geschenk nicht mehr verfügbar')}
+   run('UPDATE game_gift_codes SET redeemed_at=?,redeemed_by=? WHERE id=? AND redeemed_at IS NULL',Date.now(),u.id,gift.id);
+   run('INSERT INTO game_boosters(user_id,multiplier,uses) VALUES(?,?,?) ON CONFLICT(user_id) DO UPDATE SET multiplier=excluded.multiplier,uses=excluded.uses',u.id,b.multiplier,b.uses);
+   db.exec('COMMIT');return json(res,200,{ok:true,booster:{multiplier:b.multiplier,uses:b.uses},user:publicUser(q('SELECT * FROM users WHERE id=?',u.id))});
+  }catch(err){db.exec('ROLLBACK');throw err}
+ }
  if(req.method==='GET'&&url.pathname==='/api/me')return json(res,200,{user:publicUser(u)});
  if(req.method==='GET'&&url.pathname==='/api/friends')return json(res,200,{friends:all(`SELECT u.id,u.username AS name,u.xp,1+CAST(u.xp/3 AS INTEGER) AS level FROM friendship f JOIN users u ON u.id=CASE WHEN f.a=? THEN f.b ELSE f.a END WHERE f.a=? OR f.b=? ORDER BY u.xp DESC`,u.id,u.id,u.id)});
  if(req.method==='POST'&&url.pathname==='/api/friends/add'){
@@ -298,7 +259,7 @@ async function handler(req,res){try{
  }
  if(req.method==='GET'&&url.pathname==='/api/announcements')return json(res,200,{message:JSON.parse(q('SELECT value FROM settings WHERE key=?','announcement')?.value||'null')});
  if(req.method==='GET'&&url.pathname==='/api/events')return json(res,200,{events:JSON.parse(q('SELECT value FROM settings WHERE key=?','events')?.value||'{}')});
- if(!deviceAdmin)return error(res,403,'Nur freigegebenes Admin-Geraet');
+ if(u.role!=='admin')return error(res,403,'Nur Administrator');
  if(req.method==='GET'&&url.pathname==='/api/admin/users')return json(res,200,{users:all('SELECT id,username AS name,diamonds,xp,role,1+CAST(xp/3 AS INTEGER) AS level FROM users ORDER BY username LIMIT 500')});
  if(req.method==='POST'&&url.pathname==='/api/admin/diamonds'){
   const v=Number(data.amount),target=q('SELECT * FROM users WHERE id=?',String(data.userId||''));if(!target||!Number.isSafeInteger(v)||v<1||v>100000)return error(res,400,'Ungültiger Empfänger/Betrag');
@@ -307,33 +268,6 @@ async function handler(req,res){try{
  if(req.method==='POST'&&url.pathname==='/api/admin/level'){
   const level=Number(data.level),target=q('SELECT * FROM users WHERE id=?',String(data.userId||''));if(!target||!Number.isSafeInteger(level)||level<1||level>10000)return error(res,400,'Ungültiges Level');
   run('UPDATE users SET xp=? WHERE id=?',(level-1)*3,target.id);audit(u.id,target.id,'set_level',level);return json(res,200,{ok:true})
- }
- if(req.method==='POST'&&url.pathname==='/api/admin/delete-user'){
-  const target=q('SELECT id,username,role FROM users WHERE id=?',String(data.userId||''));
-  if(!target)return error(res,404,'Account nicht gefunden');
-  if(target.role==='admin')return error(res,403,'Administratorkonten können nicht gelöscht werden');
-  if(data.confirmName!==target.username)return error(res,400,'Bestätigung stimmt nicht mit dem Nutzernamen überein');
-  db.exec('BEGIN IMMEDIATE');
-  try{
-   // Remove non-cascading references before deleting the account.
-   run('DELETE FROM game_gift_codes WHERE sender_id=? OR recipient_id=? OR redeemed_by=?',target.id,target.id,target.id);
-   run('DELETE FROM direct_gifts WHERE sender_id=? OR recipient_id=?',target.id,target.id);run('DELETE FROM gift_inventory WHERE user_id=?',target.id);
-   run('DELETE FROM gifts WHERE recipient_id=? OR admin_id=?',target.id,target.id);
-   run('DELETE FROM game_exercises WHERE run_id IN (SELECT id FROM game_runs WHERE user_id=?)',target.id);
-   run('DELETE FROM game_runs WHERE user_id=?',target.id);
-   run('DELETE FROM game_chests WHERE user_id=?',target.id);
-   run('DELETE FROM game_boosters WHERE user_id=?',target.id);
-   run('DELETE FROM game_purchases WHERE user_id=?',target.id);
-   run('DELETE FROM game_daily WHERE user_id=?',target.id);
-   run('DELETE FROM game_wheel WHERE user_id=?',target.id);
-   run('DELETE FROM game_season_claims WHERE user_id=?',target.id);
-   run('DELETE FROM game_event_claims WHERE user_id=?',target.id);
-   run('DELETE FROM audit WHERE actor=? OR subject=?',target.id,target.id);
-   // sessions, friendships and cloud_state are removed by foreign-key CASCADE.
-   run('DELETE FROM users WHERE id=?',target.id);
-   db.exec('COMMIT');
-  }catch(err){db.exec('ROLLBACK');throw err}
-  return json(res,200,{ok:true});
  }
  if(req.method==='POST'&&url.pathname==='/api/admin/reset-player'){
   const target=q('SELECT * FROM users WHERE id=?',String(data.userId||''));
@@ -370,7 +304,6 @@ async function handler(req,res){try{
  }
  error(res,404,'Endpunkt nicht gefunden');
  }catch(e){console.error(e);error(res,e.message==='Eingabe zu groß'||e.message==='Ungültiges JSON'?400:500,e.message==='Eingabe zu groß'||e.message==='Ungültiges JSON'?e.message:'Serverfehler')}}
-const server=http.createServer(handler);server.listen(PORT,HOST,()=>{
- console.log(`FitnessPlus Server: http://localhost:${PORT} (Datenbank: ${DBPATH})`);
-   console.log(validAdminConfig?'Admin-Geraeteschutz aktiviert':'Admin gesperrt: FITNESSPLUS_ADMIN_DEVICE_HASH fehlt');
-});
+// Initial admin is created only when explicitly configured via environment variables.
+if(process.env.ADMIN_NAME&&process.env.ADMIN_PASSWORD){const name=process.env.ADMIN_NAME,pass=process.env.ADMIN_PASSWORD;if(!validName(name)||pass.length<12)throw Error('ADMIN_NAME (3–24 Zeichen) und ADMIN_PASSWORD (mind. 12 Zeichen) prüfen');const existing=q('SELECT * FROM users WHERE username=?',name);if(!existing){let salt=random(16);run('INSERT INTO users(id,username,passhash,salt,role,friend_code,created_at) VALUES(?,?,?,?,?,?,?)',uid(),name,hashPass(pass,salt),salt,'admin','FP-'+random(8).toUpperCase(),Date.now());console.log('Admin-Konto eingerichtet')}else if(existing.role!=='admin')throw Error('ADMIN_NAME ist bereits vergeben');}
+const server=http.createServer(handler);server.listen(PORT,HOST,()=>console.log(`FitnessPlus Server: http://localhost:${PORT} (Datenbank: ${DBPATH})`));
