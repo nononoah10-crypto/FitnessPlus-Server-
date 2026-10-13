@@ -361,7 +361,7 @@ function friendsScreen(){
  const friends=[...s.friends].sort((a,b)=>Number(b.exercises)-Number(a.exercises)||a.name.localeCompare(b.name,'de'));
  return hdr('DEINE FREUNDE','Gemeinsam stärker.')+
  `<div class="card"><div class="row"><div><b>👥 Freundesliste</b><div class="sub">${friends.length} ${friends.length===1?'Freund':'Freunde'} gespeichert</div></div><button class="btn" data-action="openLevels">🏆 Rangliste</button></div></div>`+
- (friends.length?friends.map((f,i)=>`<div class="card friendCard"><div class="row"><div class="friendAvatar">${safe(String(f.name||'?').slice(0,1).toUpperCase())}</div><div class="grow"><b>${safe(f.name)}</b><div class="sub">Level ${levelNumber(Number(f.exercises))} · ${Number(f.exercises)} Übungen</div><div class="friendMiniTrack"><div style="width:${Number(f.exercises)%3/3*100}%"></div></div></div><button class="btn" data-connectfriend="${safe(f.name)}">Für Geschenke verbinden</button><button class="btn danger" data-removefriend="${safe(f.name)}" aria-label="${safe(f.name)} entfernen">Entfernen</button></div></div>`).join(''):`<div class="card"><b>Noch keine Freunde</b><p class="sub">Lass dir einen Freundes-Link schicken und öffne ihn.</p></div>`)+
+ (friends.length?friends.map((f,i)=>`<div class="card friendCard"><div class="row"><div class="friendAvatar">${safe(String(f.name||'?').slice(0,1).toUpperCase())}</div><div class="grow"><b>${safe(f.name)}</b><div class="sub">Level ${levelNumber(Number(f.exercises))} · ${Number(f.exercises)} Übungen</div><div class="friendMiniTrack"><div style="width:${Number(f.exercises)%3/3*100}%"></div></div></div><button class="btn danger" data-removefriend="${safe(f.name)}" aria-label="${safe(f.name)} entfernen">Entfernen</button></div></div>`).join(''):`<div class="card"><b>Noch keine Freunde</b><p class="sub">Lass dir einen Freundes-Link schicken und öffne ihn.</p></div>`)+
  friendLinkPanel()+
  `<p class="sub">Die Liste bleibt auf deinem Gerät gespeichert. Für einen aktuellen Levelstand öffnen Freunde einfach einen neuen Einladungslink.</p>`;
 }
@@ -370,7 +370,7 @@ home=function(){return homeBeforeLevels()+`<div class="card"><div class="row"><d
 const progressBeforeLevels=progress;
 progress=function(){if(s.view==='friends')return friendsScreen();if(s.view==='levels')return levelsScreen();return `<div class="card"><div class="row"><div><b>🏆 Level ${levelNumber()}</b><div class="sub">Vergleiche dich mit deinen Freunden</div></div><button class="btn" data-action="openFriends">Freundesliste →</button></div></div>`+progressBeforeLevels()};
 // Capture these new actions before the original click handler.
-document.addEventListener('click',async e=>{
+document.addEventListener('click',e=>{
  const b=e.target.closest('button');if(!b)return;
  if(b.dataset.action==='openFriends'){e.preventDefault();e.stopImmediatePropagation();s.view='friends';s.tab='progress';render();return}
  if(b.dataset.action==='openLevels'){
@@ -379,22 +379,6 @@ document.addEventListener('click',async e=>{
  if(b.dataset.friendcopy){e.preventDefault();e.stopImmediatePropagation();copyFriendLink();return}
  if(b.dataset.friendshare){e.preventDefault();e.stopImmediatePropagation();shareFriendLink();return}
  if(b.dataset.friendbase){e.preventDefault();e.stopImmediatePropagation();const input=String($('#friendBaseInput')?.value||'').trim();try{if(input&&!/^https?:$/.test(new URL(input).protocol))throw Error('URL');if(input)localStorage.setItem('fitnessplus-friend-base',input);else localStorage.removeItem('fitnessplus-friend-base');render();toast('App-Adresse gespeichert!')}catch(_){toast('Bitte vollständige https://-Adresse eingeben.')}return}
- if(b.dataset.connectfriend!==undefined){
-  e.preventDefault();e.stopImmediatePropagation();
-  const suggested=b.dataset.connectfriend;
-  const name=prompt('Wie lautet der genaue FitnessPlus-Benutzername deines Freundes auf dem Online-Server?',suggested);
-  if(name===null)return;
-  if(!name.trim()){toast('Bitte einen Benutzernamen eingeben.');return}
-  b.disabled=true;
-  try{
-   const response=await fetch('/api/friends/add-name',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:name.trim()})});
-   const result=await response.json();
-   if(!response.ok)throw Error(result.error||'Verbindung fehlgeschlagen');
-   toast('Freund ist jetzt auch für Geschenke verbunden!');
-  }catch(err){toast('Online-Verbindung fehlgeschlagen: '+err.message)}
-  finally{b.disabled=false}
-  return;
- }
  if(b.dataset.removefriend){e.preventDefault();e.stopImmediatePropagation();s.friends=s.friends.filter(x=>x.name!==b.dataset.removefriend);save();render();toast('Freund entfernt');return}
 },true);
 // Extend backups with level history and manual friend ranking.
@@ -464,7 +448,19 @@ function decodeGiftCode(code){
  const i=levelBoosters.find(x=>x.id===g.booster);if(!i)throw Error('Unbekannter Booster');
  return {...g,item:i};
 }
-function giftScreen(){return hdr('GESCHENKE','Direkt an Freunde senden')+'<div class="card"><b>Geschenke werden geladen …</b></div>';}
+function giftScreen(){
+ const friendOpts=s.friends.map(f=>`<option value="${safe(f.name)}">${safe(f.name)} · Lv. ${levelNumber(Number(f.exercises))}</option>`).join('');
+ return hdr('GESCHENKE','Freunden Power schenken.')+`<button class="btn" data-giftback="1">← Zum Diamanten Store</button>
+ <section class="boosterHero"><div class="shopKicker">DEINE DIAMANTEN</div><div class="boosterBalance">💎 ${Math.floor(s.diamonds)}</div><div class="boosterStatus">🎁 Wähle ein Geschenk, teile den Code per Nachricht.</div></section>
+ <div class="card"><b>🎁 Geschenk vorbereiten</b><p class="sub">Ein Level-Booster wird von deinen Diamanten bezahlt. Dein Freund aktiviert ihn mit dem Geschenkcode in seiner App.</p>
+ <label class="field" for="giftFriend">Für wen?</label><select class="input" id="giftFriend"><option value="">Freund auswählen</option>${friendOpts}</select>
+ <label class="field" for="giftBooster">Welchen Booster schenken?</label><select class="input" id="giftBooster">${levelBoosters.map(i=>`<option value="${i.id}">${i.emoji} ${safe(i.name)} · ${i.price} 💎</option>`).join('')}</select>
+ <button class="primary" data-giftbuy="1">Geschenk kaufen und Code erzeugen</button></div>
+ ${s.giftsSent.length?`<div class="card"><b>📤 Deine Geschenkcodes</b>${s.giftsSent.slice().reverse().slice(0,12).map(g=>{const i=levelBoosters.find(x=>x.id===g.booster);return `<div class="giftEntry"><div><b>${i?i.emoji+' '+safe(i.name):'Level-Booster'}</b><div class="sub">Für ${safe(g.to)} · ${safe(g.created)}</div></div><button class="btn" data-giftcopy="${safe(g.id)}">Code kopieren</button></div>`}).join('')}</div>`:''}
+ <div class="card"><b>📥 Geschenk einlösen</b><p class="sub">Geschenkcode von einem Freund einfügen:</p><textarea class="input" id="giftCodeInput" rows="4" placeholder="FPG58-..."></textarea><button class="primary" data-giftredeem="1">Geschenk einlösen</button>
+ ${s.giftsInbox.length?`<div class="sub" style="margin-top:10px">${s.giftsInbox.length} eingelöste Geschenk${s.giftsInbox.length===1?'':'e'} gespeichert</div>`:''}</div>
+ <div class="shopNotice">Hinweis: Geschenkcodes werden ohne Online-Server übertragen. Sie lassen sich deshalb nicht sicher gegen Kopieren oder Manipulation schützen. Ein Code wird nur auf diesem Gerät als eingelöst markiert. Booster lassen sich erst aktivieren, wenn kein anderer Booster läuft.</div>`;
+}
 const renderBeforeGifts=render;
 render=function(){renderBeforeGifts();if(s.view==='gifts')$('#page').innerHTML=giftScreen()};
 function activateGiftIfReady(){
@@ -622,7 +618,7 @@ $('#importFile').addEventListener('change',async e=>{try{let f=e.target.files?.[
 setTimeout(refreshEvents,900);setInterval(refreshEvents,60000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)refreshEvents()});
 
 const normalOldSettings=settings;
-// Online-Anmeldung ist im Kopfbereich statt unter Mehr erreichbar.
+settings=function(){return normalOldSettings()+`<div class="card"><b>🌐 FitnessPlus Online</b><p class="sub">Die Online-Verwaltung läuft getrennt von dieser App. Dein lokaler Spielstand wird nicht automatisch übertragen.</p><a href="https://fitnessplus-server.onrender.com/online.html" target="_blank" rel="noopener noreferrer" class="primary" style="display:block;text-align:center;text-decoration:none">Online-Konto öffnen ↗</a></div>`};
 function checkReminders(){let now=new Date(),stamp=dkey(now)+'T'+String(now.getHours()).padStart(2,'0')+':'+String(now.getMinutes()).padStart(2,'0');let any=false;for(let r of s.reminders){if(!r.shown&&`${r.date}T${r.time}`<=stamp){r.shown=true;any=true;toast('Erinnerung: Zeit für dein FitnessPlus-Training!')}}if(any)save()}
 setInterval(timerTick,100);setInterval(()=>{const msg=$('#rewardTimeText');if(msg&&s.active){const g=rewardTimeInfo();msg.textContent=g.ready?'✓ Trainingszeit erreicht! Truhen sind jetzt freigeschaltet.':'Noch '+rewardTimeLabel(g.remaining)+' bis zu deinen Truhen. Du kannst vorher abschließen, bekommst dann aber keine Truhe.';}},1000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)timerTick()});window.addEventListener('pageshow',timerTick);render();if('serviceWorker'in navigator&&location.protocol==='https:')navigator.serviceWorker.register('./sw.js').catch(()=>{});
 
@@ -685,12 +681,12 @@ friendLinkPanel=function(){return `<div class="card"><b>👥 Freunde per Code hi
 function fp70GiftCode(g,label,type){return 'FPG7-'+fp70Label(label)+'-'+fp70Encode({v:1,type,id:g.id,to:g.to,from:g.from,amount:g.amount||0,booster:g.booster||'',created:g.created})}
 function fp70ReadGift(text){const m=String(text||'').trim().match(/^FPG7-([A-Z0-9]{3,18})-([A-Za-z0-9_-]+)$/i);if(!m)throw Error('Ungültiger Geschenk-Code.');const g=fp70Decode(m[2]);if(g.v!==1||!['diamonds','booster'].includes(g.type)||typeof g.id!=='string'||g.id.length<8||g.id.length>100||typeof g.to!=='string'||g.to.length>32||typeof g.from!=='string'||g.from.length>32)throw Error('Ungültiges Geschenk.');if(g.type==='diamonds'&&(!Number.isInteger(g.amount)||g.amount<1||g.amount>100000))throw Error('Ungültiger Betrag.');if(g.type==='booster'&&!levelBoosters.some(x=>x.id===g.booster))throw Error('Unbekannter Booster.');return g;}
 const fp70OldGiftScreen=giftScreen;
-giftScreen=function(){return fp70OldGiftScreen()};
+giftScreen=function(){return fp70OldGiftScreen()+`<div class="card"><b>🔤 Geschenke mit Wunsch-Code</b><p class="sub">Booster oder Diamanten per Code einlösen. Der Code enthält den selbst gewählten Namen plus die Geschenkdetails.</p><textarea class="input" id="fp70GiftInput" rows="3" placeholder="FPG7-GESCHENK-..."></textarea><button class="primary" data-fp70giftredeem="1">Wunsch-Code einlösen</button></div>`};
 function fp70GiftRedeem(g){const me=String(s.profile.nickname||'').trim();if(me!==g.to)throw Error('Geschenk ist für '+g.to+'. Profilnamen prüfen.');if(g.type==='diamonds'){s.devDiamondRedeemed=Array.isArray(s.devDiamondRedeemed)?s.devDiamondRedeemed:[];if(s.devDiamondRedeemed.includes(g.id))throw Error('Auf diesem Gerät schon eingelöst.');s.devDiamondRedeemed.push(g.id);s.diamonds+=g.amount;save();render();toast('+'+g.amount+' Diamanten erhalten!');return}
 if(s.giftsRedeemed.includes(g.id))throw Error('Auf diesem Gerät schon eingelöst.');s.giftsRedeemed.push(g.id);s.giftsInbox.push({id:g.id,booster:g.booster,from:g.from,activated:false});const active=activateGiftIfReady();save();render();toast(active?'Booster aktiviert!':'Booster als Geschenk gespeichert!')}
 // Store a user-chosen label per generated present; all transfers use codes.
 const fp70OriginalGift=giftScreen;
-giftScreen=function(){return fp70OriginalGift()};
+giftScreen=function(){const h=fp70OriginalGift();return h.replace('<button class="primary" data-giftbuy="1">', '<label class="field">Geschenk-Code-Name (optional für Wunsch-Code)</label><input class="input" id="fp70BoosterLabel" maxlength="18" placeholder="z. B. POWER2026"><button class="primary" data-giftbuy="1">')};
 // Add admin option to create a named offline code from each diamond gift.
 async function fp70Copy(v){try{await navigator.clipboard.writeText(v);toast('Code kopiert!')}catch(_){prompt('Code kopieren:',v)}}
 document.addEventListener('click',async e=>{const b=e.target.closest('button');if(!b)return;try{
@@ -724,17 +720,16 @@ function fp72LevelRedeem(){
  save();render();toast('Level auf '+g.level+' gesetzt!');
 }
 const fp72BeforeGift=giftScreen;
-giftScreen=function(){return fp72BeforeGift()};
-
+giftScreen=function(){return fp72BeforeGift()+`<div class="card"><b>🏆 Level-Änderung einlösen</b><p class="sub">Hast du vom Administrator einen Level-Code erhalten? Füge ihn hier ein. Ein Zurücksetzen auf Level 1 ist ebenfalls möglich.</p><textarea id="fp72LevelInput" class="input" rows="3" placeholder="FPL72-..."></textarea><button class="primary" data-fp72levelredeem="1">Level-Code einlösen</button></div>`};
+document.addEventListener('click',e=>{const b=e.target.closest('button[data-fp72levelredeem]');if(!b)return;e.preventDefault();e.stopImmediatePropagation();try{fp72LevelRedeem()}catch(err){toast(err.message||'Code ungültig')}},true);
 
 
 // FitnessPlus Cloud Sync 7.5. Server-backed profile per logged-in account.
 // Protected balances are server-only; local legacy reward displays are not yet authoritative.
 (()=>{'use strict';
 let revision=0, loggedIn=false, busy=false, queued=false, conflict=false, lastSent='', ready=false;
-const status=document.createElement('div');status.id='fpSyncStatus';status.style.cssText='position:fixed;bottom:65px;right:8px;padding:5px 9px;border-radius:12px;background:#172131;color:white;font:11px system-ui;z-index:9999;opacity:.88';
-status.textContent='☁️ Offline';document.body.appendChild(status);
-const setStatus=t=>{status.textContent=t};
+// Cloud sync keeps running; no floating badge obscures the bottom navigation.
+const setStatus=t=>{};
 const api=async(method,url,data)=>{let r=await fetch(url,{method,credentials:'same-origin',headers:data?{'Content-Type':'application/json'}:{},body:data?JSON.stringify(data):undefined});let x=await r.json();if(!r.ok)throw Object.assign(Error(x.error||'Serverfehler'),{status:r.status});return x};
 const clean=()=>{let x={...s};for(let k of ['active','view','edit','draftExercises','tab','calMonth','selectedDay','weekOffset','libraryFilter','restUntil'])delete x[k];return x};
 const merge=(remote,user)=>{let ui={tab:s.tab,theme:s.theme,active:null,view:'',edit:null,draftExercises:[]};s={...s,...remote,...ui,diamonds:user.diamonds,levelExercises:user.xp};try{localStorage.setItem(KEY,JSON.stringify(s))}catch{}render()};
@@ -811,283 +806,4 @@ window.addEventListener('click',async e=>{
 },true);
 })();
 
-})();
-
-// Server-Nachrichten und gestartete Events mittig anzeigen (bei angemeldetem Online-Konto).
-(()=>{
- const seenKey='fp-live-popup-seen-v1';
- const getSeen=()=>{try{return JSON.parse(localStorage.getItem(seenKey)||'{}')}catch{return {}}};
- let queue=[],showing=false,loading=false;
- function next(){if(showing||!queue.length)return;showing=true;
-  const item=queue.shift(),el=document.getElementById('announcementOverlay');if(!el){showing=false;return}
-  el.innerHTML='<div class="announceModal" role="dialog" aria-modal="true"><div class="announceMark">'+(item.kind==='event'?'🎉':'📣')+'</div><div class="announceTop">'+(item.kind==='event'?'EVENT GESTARTET':'NEUE NACHRICHT')+'</div><h2>'+safe(item.title)+'</h2><p>'+safe(item.body)+'</p><button class="primary" type="button" id="fpLiveDismiss">Okay</button></div>';
-  el.classList.add('show');el.querySelector('#fpLiveDismiss').addEventListener('click',()=>{el.classList.remove('show');showing=false;next()},{once:true});
- }
- function enqueue(kind,id,title,body){if(!id)return;const seen=getSeen(),key=kind+':'+id;if(seen[key])return;seen[key]=Date.now();
-  try{const entries=Object.entries(seen).sort((a,b)=>b[1]-a[1]).slice(0,80);localStorage.setItem(seenKey,JSON.stringify(Object.fromEntries(entries)))}catch{}
-  queue.push({kind,title,body});next();
- }
- async function poll(){if(loading||document.hidden)return;loading=true;
-  try{
-   const [a,e]=await Promise.all([fetch('/api/announcements',{credentials:'same-origin',cache:'no-store'}),fetch('/api/events',{credentials:'same-origin',cache:'no-store'})]);
-   if(a.ok){const d=await a.json(),m=d.message;if(m&&m.id&&m.message)enqueue('message',String(m.id),String(m.title||'Mitteilung'),String(m.message));}
-   if(e.ok){const d=await e.json(),v=d.events||{};if(v.updatedAt&&((v.giftDiamonds>0)||v.doubleXp||v.season||v.wheel)){
-    const details=[v.giftDiamonds>0?'🎁 '+v.giftDiamonds+' Diamanten':null,v.doubleXp?'⚡ Doppel-XP':null,v.season?'🏆 Saison':null,v.wheel?'🎡 Glücksrad':null].filter(Boolean).join(' · ');
-    enqueue('event',String(v.updatedAt),'Neues FitnessPlus-Event!',details||'Ein Event ist gestartet.');
-   }}
-  }catch{}finally{loading=false}
- }
- setTimeout(poll,1600);setInterval(poll,15000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)poll()});
-
-// FitnessPlus: authenticated, server-backed presents for every signed-in player.
-// Diamonds are transferred immediately; booster gifts are claimed once and activated by the server.
-(()=>{
- const esc=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
- const catalog=Object.fromEntries(levelBoosters.map(i=>[i.id,{name:i.name,emoji:i.emoji,price:i.price,multiplier:i.multiplier,uses:i.uses}]));
- const draft={friendId:'',kind:'diamonds',amount:'10',item:'boost2small'};
- let friends=[],inbox=[],balance=0,activeBoostUses=0,busy=false,loaded=false,loadError='';
- const api=async(method,path,body)=>{
-  const options={method,credentials:'same-origin',cache:'no-store'};
-  if(body!==undefined){options.headers={'Content-Type':'application/json'};options.body=JSON.stringify(body)}
-  const r=await fetch(path,options),d=await r.json().catch(()=>({}));
-  if(!r.ok)throw Error(d.error||'Serverfehler ('+r.status+')');
-  return d;
- };
- const dateText=stamp=>{
-  const value=Number(stamp);if(!Number.isFinite(value)||value<=0)return '';
-  return new Date(value).toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit',year:'numeric'});
- };
- function keepDraft(){
-  const fields={friendId:'giftFriendOnline',kind:'giftKindOnline',amount:'giftAmountOnline',item:'giftBoosterOnline'};
-  for(const [k,id] of Object.entries(fields)){const el=document.getElementById(id);if(el)draft[k]=el.value}
- }
- function giftList(){
-  if(!loaded)return '<div class="card"><b>🎁 Meine erhaltenen Geschenke</b><p class="sub">'+(loadError?esc(loadError):'Geschenke werden geladen …')+'</p><button class="btn" data-giftrefresh="1">↻ Erneut versuchen</button></div>';
-  const failure=loadError?'<p class="sub" role="alert">'+esc(loadError)+'</p>':'';
-  if(!inbox.length)return '<div class="card"><b>🎁 Meine erhaltenen Geschenke</b><p>Du hast aktuell keine erhaltenen Geschenke.</p>'+failure+'<button class="btn" data-giftrefresh="1">↻ Aktualisieren</button></div>';
-  const cards=inbox.map(g=>{
-   const sender=esc(g.sender||'Unbekannter Spieler');
-   const when=dateText(g.createdAt),date=when?'<div class="sub">'+esc(when)+'</div>':'';
-   if(g.kind==='diamonds'){
-    const amount=Number(g.amount)||0;
-    return '<div class="item"><div class="symbol">💎</div><div class="grow"><b>+'+amount+' Diamanten</b><div class="sub">Geschenk von '+sender+'</div>'+date+'<div class="sub">✓ Bereits deinem Guthaben gutgeschrieben</div></div></div>';
-   }
-   const item=catalog[g.item],name=esc(item?.name||g.item||'Shop-Item');
-   const claimed=!!g.claimedAt,blocked=!claimed&&activeBoostUses>0;
-   const action=claimed?'<b class="small">✓ Eingelöst</b>':
-    '<button class="btn" data-directclaim="'+esc(g.id)+'" '+(blocked?'disabled':'')+'>'+(blocked?'Booster aktiv':'Einlösen')+'</button>';
-   const hint=blocked?'<div class="sub">Verbrauche zuerst deinen aktiven Booster.</div>':'';
-   return '<div class="item"><div class="symbol">'+esc(item?.emoji||'🎁')+'</div><div class="grow"><b>'+name+'</b><div class="sub">Geschenk von '+sender+'</div>'+date+hint+'</div>'+action+'</div>';
-  }).join('');
-  return '<div class="card"><div class="row"><b>🎁 Meine erhaltenen Geschenke</b><button class="btn" data-giftrefresh="1">↻</button></div>'+failure+cards+'</div>';
- }
- async function refresh(showErrors=true){
-  if(busy||!window.FP76Online)return;
-  busy=true;
-  try{
-   // All three routes are ordinary player routes. There is no admin-only inventory request.
-   const [f,i,g]=await Promise.all([
-    api('GET','/api/friends'),api('GET','/api/gifts/inbox'),api('GET','/api/game')
-   ]);
-   friends=Array.isArray(f.friends)?f.friends:[];
-   inbox=Array.isArray(i.gifts)?i.gifts:[];
-   balance=Number(g.user?.diamonds)||0;
-   activeBoostUses=Number(g.booster?.uses)||0;
-   // Received diamonds are already booked server-side; update the visible app balance too.
-   s.diamonds=balance;
-   s.levelBoostUses=activeBoostUses;
-   s.levelBoostMultiplier=Number(g.booster?.multiplier)||1;
-   loaded=true;loadError='';
-   if(s.view==='gifts'){keepDraft();render()}
-  }catch(e){loadError='Laden fehlgeschlagen: '+e.message;if(showErrors)toast(loadError);if(s.view==='gifts'){keepDraft();render()}}
-  finally{busy=false}
- }
- giftScreen=function(){
-  const back='<button class="btn" data-giftback="1">← Zum Diamantenshop</button>';
-  if(!window.FP76Online)return hdr('GESCHENKE','Direkt über den Server')+back+'<div class="card"><b>Bitte anmelden</b><p>Geschenke können alle angemeldeten Spieler senden und empfangen.</p><button class="primary" data-giftlogin="1">Anmelden</button></div>';
-  const friendOptions=friends.map(f=>'<option value="'+esc(f.id)+'" '+(draft.friendId===f.id?'selected':'')+'>'+esc(f.name)+'</option>').join('');
-  const items=Object.entries(catalog).map(([id,v])=>'<option value="'+esc(id)+'" '+(draft.item===id?'selected':'')+'>'+esc(v.emoji+' '+v.name)+' · '+v.price+' 💎</option>').join('');
-  return hdr('GESCHENKE','Geschenke an Freunde senden')+back+
-   '<div class="card"><b>🎁 Geschenk senden</b><p class="sub">Dein Guthaben: 💎 '+balance+'. Für alle angemeldeten Spieler.</p>'+
-   '<label class="field" for="giftFriendOnline">Freund auswählen</label><select class="input" id="giftFriendOnline"><option value="">Bitte auswählen</option>'+friendOptions+'</select>'+
-   (!friends.length?'<p class="sub">Noch keine Online-Freunde verbunden. Öffne deine Freundesliste und wähle „Für Geschenke verbinden“.</p>':'')+
-   '<label class="field" for="giftKindOnline">Was möchtest du verschenken?</label><select class="input" id="giftKindOnline"><option value="diamonds" '+(draft.kind==='diamonds'?'selected':'')+'>💎 Diamanten</option><option value="booster" '+(draft.kind==='booster'?'selected':'')+'>🎁 Item aus dem Item-Shop</option></select>'+
-   '<div id="giftAmountRow" '+(draft.kind==='booster'?'style="display:none"':'')+'><label class="field" for="giftAmountOnline">Anzahl Diamanten</label><input class="input" id="giftAmountOnline" type="number" inputmode="numeric" min="1" max="100000" step="1" value="'+esc(draft.amount)+'"></div>'+
-   '<div id="giftBoosterRow" '+(draft.kind!=='booster'?'style="display:none"':'')+'><label class="field" for="giftBoosterOnline">Item auswählen</label><select class="input" id="giftBoosterOnline">'+items+'</select><p class="sub">Der Empfänger kann den Booster einmal einlösen. Ist bereits einer aktiv, wartet das Geschenk.</p></div>'+
-   '<button class="primary" data-directsend="1">Geschenk absenden</button></div>'+giftList();
- };
- const priorRender=render;
- render=function(){priorRender();if(s.view==='gifts'){const page=document.querySelector('#page');if(page)page.innerHTML=giftScreen()}};
- document.addEventListener('input',e=>{if(e.target?.id==='giftAmountOnline')draft.amount=e.target.value},true);
- document.addEventListener('change',e=>{
-  const id=e.target?.id;
-  if(id==='giftFriendOnline')draft.friendId=e.target.value;
-  if(id==='giftBoosterOnline')draft.item=e.target.value;
-  if(id==='giftKindOnline'){
-   draft.kind=e.target.value;
-   const item=document.getElementById('giftBoosterRow'),amount=document.getElementById('giftAmountRow');
-   if(item)item.style.display=draft.kind==='booster'?'':'none';
-   if(amount)amount.style.display=draft.kind==='booster'?'none':'';
-  }
- },true);
- // Handle actions on window before legacy document listeners.
- window.addEventListener('click',async e=>{
-  const b=e.target.closest('button');if(!b)return;
-  if(b.dataset.giftmenu!==undefined){e.preventDefault();e.stopImmediatePropagation();s.view='gifts';render();await refresh();return}
-  if(b.dataset.giftback!==undefined){e.preventDefault();e.stopImmediatePropagation();s.view='store';render();return}
-  if(b.dataset.giftlogin!==undefined){e.preventDefault();e.stopImmediatePropagation();window.FitnessPlusOpenOnline?.();return}
-  if(b.dataset.giftrefresh!==undefined){e.preventDefault();e.stopImmediatePropagation();keepDraft();await refresh();return}
-  if(b.dataset.directclaim!==undefined){
-   e.preventDefault();e.stopImmediatePropagation();if(b.disabled)return;
-   const id=b.dataset.directclaim,g=inbox.find(x=>x.id===id&&x.kind!=='diamonds'&&!x.claimedAt);
-   if(!g)return;
-   if(activeBoostUses>0){toast('Bitte erst deinen aktiven Booster aufbrauchen.');return}
-   b.disabled=true;
-   try{const r=await api('POST','/api/gifts/claim',{giftId:id});
-    s.levelBoostUses=r.booster?.uses??s.levelBoostUses;s.levelBoostMultiplier=r.booster?.multiplier??s.levelBoostMultiplier;
-    await refresh();window.FP76Refresh?.();toast('🎁 Booster erfolgreich aktiviert!');
-   }catch(err){toast(err.message)}finally{b.disabled=false}
-   return;
-  }
-  if(b.dataset.directsend===undefined)return;
-  e.preventDefault();e.stopImmediatePropagation();if(b.disabled)return;
-  if(!window.FP76Online){toast('Bitte zuerst anmelden');return}
-  keepDraft();const friend=friends.find(f=>f.id===draft.friendId);
-  if(!friend){toast('Bitte einen Freund auswählen');return}
-  const kind=draft.kind,amount=Number(draft.amount),item=draft.item;
-  if(kind==='diamonds'&&(!Number.isSafeInteger(amount)||amount<1||amount>100000)){toast('Bitte eine gültige Diamantenanzahl eingeben');return}
-  if(kind==='booster'&&!catalog[item]){toast('Bitte ein Item auswählen');return}
-  if(!['diamonds','booster'].includes(kind))return;
-  const description=kind==='diamonds'?amount+' Diamanten':catalog[item].name+' ('+catalog[item].price+' Diamanten)';
-  if(!confirm(description+' an '+friend.name+' senden?'))return;
-  b.disabled=true;
-  try{
-   await api('POST','/api/gifts/send',kind==='diamonds'?{friendId:friend.id,kind,amount}:{friendId:friend.id,kind:'booster',item});
-   await refresh();window.FP76Refresh?.();toast('🎁 Geschenk an '+friend.name+' gesendet!');
-  }catch(err){toast(err.message)}finally{b.disabled=false}
- },true);
- window.addEventListener('message',e=>{if(e.origin===location.origin&&e.data?.type==='fitnessplus-session-changed')setTimeout(()=>refresh(false),1000)});
- document.addEventListener('visibilitychange',()=>{if(!document.hidden&&s.view==='gifts')refresh(false)});
- // New gifts appear in the inbox shortly after delivery, also without manually refreshing.
- setInterval(()=>{if(window.FP76Online&&s.view==='gifts'&&!document.hidden)refresh(false)},12000);
-})();
-
-// FitnessPlus: permanent bottom indicator for active item-shop boosters.
-// Boosters last for a number of completed exercises, not a number of minutes.
-(()=>{
- 'use strict';
- const ID='fpActiveItemBanner';
- const css=document.createElement('style');
- css.textContent=`
-  #${ID}[hidden]{display:none!important}
-  #${ID}{
-   position:fixed;z-index:45;bottom:calc(91px + env(safe-area-inset-bottom));
-   left:50%;transform:translateX(-50%);width:calc(100% - 30px);
-   max-width:528px;padding:12px 16px;border-radius:18px;
-   background:linear-gradient(115deg,#125e51,#087b69);color:#fff;
-   border:1px solid rgba(255,255,255,.22);
-   box-shadow:0 9px 30px rgba(8,65,55,.25);
-   display:flex;align-items:center;gap:12px;
-   font:14px/1.35 system-ui,-apple-system,sans-serif;
-   pointer-events:none;
-  }
-  #${ID} .fp-item-icon{font-size:26px;flex:none}
-  #${ID} .fp-item-details{flex:1;min-width:0}
-  #${ID} .fp-item-details strong{display:block;font-size:13px;font-weight:800}
-  #${ID} .fp-item-details span{display:block;font-size:12px;opacity:.95}
-  #${ID} .fp-item-status{font-size:11px;font-weight:800;white-space:nowrap;
-    background:rgba(255,255,255,.16);padding:6px 9px;border-radius:999px}
-  body.fp-item-active .app{padding-bottom:calc(190px + env(safe-area-inset-bottom))!important}
-  body.fp-item-active #toast{bottom:calc(164px + env(safe-area-inset-bottom))!important}
-  body.fp-item-active #fpSyncStatus{bottom:calc(150px + env(safe-area-inset-bottom))!important}
-  @media(max-width:355px){#${ID}{padding:10px 12px;gap:8px}#${ID} .fp-item-status{display:none}}
- `;
- document.head.appendChild(css);
- const banner=document.createElement('aside');
- banner.id=ID;
- banner.setAttribute('role','status');
- banner.setAttribute('aria-label','Aktiver Shop-Booster');
- banner.hidden=true;
- document.body.appendChild(banner);
- function syncItemStatus(){
-  const count=Math.max(0,Math.floor(Number(s.levelBoostUses)||0));
-  const multiplier=Number(s.levelBoostMultiplier);
-  const active=count>0&&(multiplier===2||multiplier===3);
-  banner.hidden=!active;
-  document.body.classList.toggle('fp-item-active',active);
-  if(!active)return;
-  const label=multiplier===3?'3× XP-Booster':'2× XP-Booster';
-  banner.innerHTML='<span class="fp-item-icon" aria-hidden="true">⚡</span>'+
-   '<span class="fp-item-details"><strong>'+label+' aktiv</strong><span>Noch '+count+' '+(count===1?'Übung':'Übungen')+' verfügbar</span></span>'+
-   '<span class="fp-item-status">Aktiv</span>';
- }
- const previousRender=render;
- render=function(){previousRender();syncItemStatus()};
- document.addEventListener('visibilitychange',()=>{if(!document.hidden)syncItemStatus()});
- syncItemStatus();
-})();
-
-})();
-
-
-// FitnessPlus: online friendships are mutual and must be read from the server.
-(()=>{
- 'use strict';
- const oldFriendsScreen=friendsScreen;
- let onlineFriends=[],loaded=false,loading=false,problem='',lastFetch=0;
- const escapeName=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
- const isOnline=()=>!!window.FP76Online;
- const fetchFriends=async(force=false)=>{
-  if(!isOnline()||loading||(!force&&loaded&&Date.now()-lastFetch<15000))return;
-  loading=true;
-  try{
-   const r=await fetch('/api/friends',{credentials:'same-origin',cache:'no-store'});
-   const j=await r.json().catch(()=>({}));
-   if(!r.ok)throw Error(j.error||'Serverfehler');
-   onlineFriends=Array.isArray(j.friends)?j.friends:[];
-   loaded=true;problem='';lastFetch=Date.now();
-  }catch(err){problem='Freunde konnten nicht geladen werden: '+err.message}
-  finally{loading=false;if(s.view==='friends'&&isOnline())render()}
- };
- friendsScreen=function(){
-  if(!isOnline())return oldFriendsScreen();
-  const entries=onlineFriends.map(f=>'<div class="card friendCard"><div class="row"><div class="friendAvatar">'+escapeName(String(f.name||'?').slice(0,1).toUpperCase())+'</div><div class="grow"><b>'+escapeName(f.name)+'</b><div class="sub">Level '+(Number(f.level)||1)+'</div></div><button class="btn danger" data-onlinefriendremove="'+escapeName(f.id)+'">Entfernen</button></div></div>').join('');
-  return hdr('FREUNDE','Deine Online-Freundesliste')+
-   '<div class="card"><div class="row"><div><b>👥 Meine Freunde</b><div class="sub">'+(loaded?onlineFriends.length+' Freunde · für beide Spieler sichtbar':'Lade Freunde vom Server …')+'</div></div><button class="btn" data-onlinefriendrefresh="1">↻ Aktualisieren</button></div>'+(problem?'<p class="sub" role="alert">'+escapeName(problem)+'</p>':'')+'</div>'+
-   (entries||'<div class="card"><p class="sub">'+(loaded?'Noch keine Online-Freunde.':'Freundesliste wird geladen …')+'</p></div>')+
-   '<div class="card"><b>Freund hinzufügen</b><p class="sub">Gib den genauen FitnessPlus-Benutzernamen ein. Die Freundschaft erscheint automatisch bei euch beiden.</p><label class="field" for="onlineFriendName">Benutzername</label><input class="input" id="onlineFriendName" autocomplete="off" placeholder="Benutzername"><button class="primary" data-onlinefriendadd="1">Freund hinzufügen</button></div>';
- };
- const originalRender=render;
- render=function(){
-  if(s.view==='friends'&&isOnline()&&!loading&&(!loaded||Date.now()-lastFetch>15000))queueMicrotask(()=>fetchFriends());
-  originalRender();
- };
- window.addEventListener('click',async e=>{
-  const b=e.target.closest?.('button');if(!b||!isOnline())return;
-  if(b.dataset.onlinefriendrefresh!==undefined){e.preventDefault();e.stopImmediatePropagation();await fetchFriends(true);return}
-  if(b.dataset.onlinefriendadd!==undefined){
-   e.preventDefault();e.stopImmediatePropagation();
-   const name=document.getElementById('onlineFriendName')?.value.trim();
-   if(!name){toast('Bitte Benutzernamen eingeben');return}
-   b.disabled=true;
-   try{
-    const r=await fetch('/api/friends/add-name',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({name})});
-    const j=await r.json().catch(()=>({}));if(!r.ok)throw Error(j.error||'Freund konnte nicht hinzugefügt werden');
-    await fetchFriends(true);toast('Freundschaft für beide Spieler gespeichert!');
-   }catch(err){toast(err.message)}finally{b.disabled=false}
-   return;
-  }
-  if(b.dataset.onlinefriendremove!==undefined){
-   e.preventDefault();e.stopImmediatePropagation();
-   if(!confirm('Freundschaft für beide Spieler entfernen?'))return;
-   b.disabled=true;
-   try{
-    const r=await fetch('/api/friends/remove',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({userId:b.dataset.onlinefriendremove})});
-    const j=await r.json().catch(()=>({}));if(!r.ok)throw Error(j.error||'Entfernen fehlgeschlagen');
-    await fetchFriends(true);toast('Freundschaft entfernt');
-   }catch(err){toast(err.message)}finally{b.disabled=false}
-  }
- },true);
- document.addEventListener('visibilitychange',()=>{if(!document.hidden&&s.view==='friends'&&isOnline())fetchFriends(true)});
- window.addEventListener('message',e=>{if(e.origin===location.origin&&e.data?.type==='fitnessplus-session-changed'){loaded=false;if(s.view==='friends')fetchFriends(true)}});
 })();
