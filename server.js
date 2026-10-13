@@ -49,6 +49,11 @@ function startSession(res,u){const token=random(32),th=crypto.createHash('sha256
 const PASSKEY_ORIGIN=process.env.PASSKEY_ORIGIN||'https://fitnessplus-server.onrender.com';
 const PASSKEY_RPID=new URL(PASSKEY_ORIGIN).hostname;
 const PASSKEY_ROW='admin-primary';
+// One-time bootstrap capability, held only in server memory. A restart invalidates its link.
+const SETUP_LINK_SECRET=crypto.randomBytes(32).toString('base64url');
+let setupLinkClaimed=false;
+const setupLinkValid=token=>!setupLinkClaimed&&equalSecret(token,SETUP_LINK_SECRET);
+
 const challenges=new Map();
 const passkeyReady=()=>!!(process.env.SUPABASE_URL&&process.env.SUPABASE_SECRET_KEY);
 function equalSecret(a,b){const x=crypto.createHash('sha256').update(String(a||'')).digest(),y=crypto.createHash('sha256').update(String(b||'')).digest();return crypto.timingSafeEqual(x,y)}
@@ -70,13 +75,13 @@ async function passkeyRoute(req,res,url,data){
  if(!passkeyReady())return error(res,503,'Passkey-Konfiguration unvollständig');
  if(req.method==='GET'&&url.pathname==='/api/passkey/status')return json(res,200,{registered:!!(await storedPasskey()),authorized:passkeySession(req)});
  if(req.method==='POST'&&url.pathname==='/api/passkey/register/options'){
-  if(!process.env.ADMIN_PASSKEY_SETUP_TOKEN||!equalSecret(data.setupToken,process.env.ADMIN_PASSKEY_SETUP_TOKEN))return error(res,403,'Einrichtungscode ungültig');
+  if(!setupLinkValid(data.setupToken))return error(res,403,'Einrichtungscode ungültig');
   if(await storedPasskey())return error(res,409,'Admin-Passkey bereits eingerichtet');
   const options=await generateRegistrationOptions({rpName:'FitnessPlus Admin',rpID:PASSKEY_RPID,userName:'FitnessPlus Admin',userID:new Uint8Array(crypto.randomBytes(32)),attestationType:'none',authenticatorSelection:{residentKey:'required',userVerification:'required'},supportedAlgorithmIDs:[-7,-257]});
   return json(res,200,{options,challengeId:putChallenge('register',options.challenge)});
  }
  if(req.method==='POST'&&url.pathname==='/api/passkey/register/verify'){
-  if(!process.env.ADMIN_PASSKEY_SETUP_TOKEN||!equalSecret(data.setupToken,process.env.ADMIN_PASSKEY_SETUP_TOKEN))return error(res,403,'Einrichtungscode ungültig');
+  if(!setupLinkValid(data.setupToken))return error(res,403,'Einrichtungscode ungültig');
   const challenge=takeChallenge(data.challengeId,'register');if(!challenge)return error(res,400,'Einrichtung abgelaufen');
   if(await storedPasskey())return error(res,409,'Admin-Passkey bereits eingerichtet');
   const result=await verifyRegistrationResponse({response:data.credential,expectedChallenge:challenge.challenge,expectedOrigin:PASSKEY_ORIGIN,expectedRPID:PASSKEY_RPID,requireUserVerification:true});
@@ -85,6 +90,7 @@ async function passkeyRoute(req,res,url,data){
   const record={id:c.id,publicKey:Buffer.from(c.publicKey).toString('base64url'),counter:c.counter,transports:c.transports||[]};
   // PRIMARY KEY insert ensures that simultaneous registrations cannot overwrite the first passkey.
   await passkeyStore('POST',{credential_id:PASSKEY_ROW,public_key:JSON.stringify(record),counter:c.counter});
+  setupLinkClaimed=true;
   adminCookie(res,adminToken());return json(res,200,{ok:true});
  }
  if(req.method==='POST'&&url.pathname==='/api/passkey/login/options'){
@@ -121,6 +127,7 @@ async function handler(req,res){try{
  if(req.method!=='GET'&&!sameOrigin(req))return error(res,403,'Herkunft nicht erlaubt');
  if(['POST','PUT'].includes(req.method)&&req.headers['content-type']?.split(';')[0]!=='application/json')return error(res,415,'JSON erforderlich');
  const data=['POST','PUT'].includes(req.method)?await body(req):{};
+ if(url.pathname.startsWith('/api/passkey/'))return passkeyRoute(req,res,url,data);
  if(req.method==='POST'&&url.pathname==='/api/register'){
   if(!validName(data.name)||typeof data.password!=='string'||data.password.length<10||data.password.length>128)return error(res,400,'Name (3–24 Zeichen) und Passwort (mind. 10 Zeichen) erforderlich');
   const id=uid(),salt=random(16),code='FP-'+random(8).toUpperCase();try{run('INSERT INTO users(id,username,passhash,salt,role,friend_code,created_at) VALUES(?,?,?,?,?,?,?)',id,data.name,hashPass(data.password,salt),salt,'user',code,Date.now())}catch{return error(res,409,'Benutzername bereits vergeben')}return startSession(res,q('SELECT * FROM users WHERE id=?',id));
@@ -129,7 +136,9 @@ async function handler(req,res){try{
   const u=typeof data.name==='string'?q('SELECT * FROM users WHERE username=?',data.name):null;
   if(!u||typeof data.password!=='string'||!authPass(u,data.password))return error(res,401,'Login fehlgeschlagen');return startSession(res,u)
  }
- const u=session(req);if(!u)return error(res,401,'Bitte anmelden');
+ const passkeyAdmin=passkeySession(req);
+ const u=session(req)||(passkeyAdmin&&(url.pathname.startsWith('/api/admin/')||url.pathname==='/api/events')?{id:'passkey-admin',role:'admin'}:null);
+ if(!u)return error(res,401,'Bitte anmelden');
  if(req.method==='POST'&&url.pathname==='/api/logout'){const tok=cookies(req).fp_session;run('DELETE FROM sessions WHERE token_hash=?',crypto.createHash('sha256').update(tok).digest('hex'));cookie(res,'',true);return json(res,200,{ok:true})}
  if(req.method==='GET'&&url.pathname==='/api/state'){
   const row=q('SELECT revision,payload,updated_at FROM cloud_state WHERE user_id=?',u.id);
@@ -371,4 +380,12 @@ async function handler(req,res){try{
  }catch(e){console.error(e);error(res,e.message==='Eingabe zu groß'||e.message==='Ungültiges JSON'?400:500,e.message==='Eingabe zu groß'||e.message==='Ungültiges JSON'?e.message:'Serverfehler')}}
 // Initial admin is created only when explicitly configured via environment variables.
 if(process.env.ADMIN_NAME&&process.env.ADMIN_PASSWORD){const name=process.env.ADMIN_NAME,pass=process.env.ADMIN_PASSWORD;if(!validName(name)||pass.length<12)throw Error('ADMIN_NAME (3–24 Zeichen) und ADMIN_PASSWORD (mind. 12 Zeichen) prüfen');const existing=q('SELECT * FROM users WHERE username=?',name);if(!existing){let salt=random(16);run('INSERT INTO users(id,username,passhash,salt,role,friend_code,created_at) VALUES(?,?,?,?,?,?,?)',uid(),name,hashPass(pass,salt),salt,'admin','FP-'+random(8).toUpperCase(),Date.now());console.log('Admin-Konto eingerichtet')}else if(existing.role!=='admin')throw Error('ADMIN_NAME ist bereits vergeben');}
-const server=http.createServer(handler);server.listen(PORT,HOST,()=>console.log(`FitnessPlus Server: http://localhost:${PORT} (Datenbank: ${DBPATH})`));
+const server=http.createServer(handler);server.listen(PORT,HOST,async()=>{
+ console.log(`FitnessPlus Server: http://localhost:${PORT} (Datenbank: ${DBPATH})`);
+ if(!passkeyReady()){console.log('FACE ID: Supabase-Zugang fehlt. Kein Einrichtungslink erstellt.');return;}
+ try{
+  if(await storedPasskey()){console.log('FACE ID: Bereits eingerichtet. Neuer Einrichtungslink gesperrt.');return;}
+  console.log('FACE ID EINMALLINK (privat; nur in Render Logs öffnen): '+PASSKEY_ORIGIN+'/admin-passkey-setup.html#token='+SETUP_LINK_SECRET);
+  console.log('FACE ID: Der Link gilt nur bis zum nächsten Serverneustart und nur bis zur ersten erfolgreichen Registrierung.');
+ }catch(e){console.error('FACE ID: Einrichtungslink konnte wegen Supabase-Verbindungsfehler nicht bereitgestellt werden:',e.message)}
+});
