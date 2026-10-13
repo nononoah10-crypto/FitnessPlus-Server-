@@ -16,18 +16,16 @@
   <button class="primary" type="button" id="fpGiftSend">Geschenk absenden</button><p class="sub" id="fpGiftStatus" aria-live="polite"></p></div>`;
  }
  function paint(msg=''){if(!giftPage())return;showing=true;page.innerHTML=`<div class="section">GESCHENKE</div><h1>Direkt an Freunde senden</h1><button class="btn" type="button" id="fpGiftBack">← Zum Diamantenshop</button>`+template(msg);showing=false}
- async function load(){if(loading||!giftPage())return;loading=true;paint('Freunde und Shop werden geladen ...');try{const [f,g]=await Promise.all([request('GET','/api/friends'),request('GET','/api/game')]);friends=f.friends||[];balance=g.user?.diamonds??0;booster=g.booster||{uses:0,multiplier:1};drawBadge();paint(friends.length?'':'Du hast noch keine Freunde hinzugefügt.');}catch(e){paint(e.message==='Bitte anmelden'?'Bitte zuerst oben auf „Anmelden“ tippen.':'Laden fehlgeschlagen: '+e.message)}finally{loading=false;lastLoad=Date.now()}}
+ async function load(){if(loading||!giftPage())return;loading=true;paint('Freunde werden geladen ...');try{const [f,g]=await Promise.all([request('GET','/api/friends'),request('GET','/api/game')]);friends=f.friends||[];balance=g.user?.diamonds??0;booster=g.booster||{uses:0,multiplier:1};drawBadge();paint(friends.length?'':'Du hast noch keine Freunde hinzugefügt.');}catch(e){paint(e.message==='Bitte anmelden'?'Bitte zuerst oben auf „Anmelden“ tippen.':'Laden fehlgeschlagen: '+e.message)}finally{loading=false;lastLoad=Date.now()}}
  const observer=new MutationObserver(()=>{if(showing||loading)return;if(giftPage()&&!page.querySelector('#fpGiftForm'))load()});observer.observe(page,{childList:true,subtree:false});
  window.addEventListener('click',async e=>{
   const b=e.target.closest('button');if(!b)return;
   if(b.id==='fpGiftBack'){e.preventDefault();e.stopImmediatePropagation();const legacy=document.createElement('button');legacy.dataset.giftback='1';legacy.style.display='none';document.body.append(legacy);legacy.click();legacy.remove();return}
-  if(b.dataset.fpClaim!==undefined){e.preventDefault();e.stopImmediatePropagation();if(claiming)return;claiming=true;const giftId=b.dataset.fpClaim;b.disabled=true;b.textContent='Wird eingelöst …';try{await request('POST','/api/gifts/claim',{giftId});inboxMessage='Geschenk erfolgreich eingelöst!';await load()}catch(err){inboxMessage='Fehler: '+err.message;await load()}finally{claiming=false}return}
   if(b.id!=='fpGiftSend')return;e.preventDefault();e.stopImmediatePropagation();if(b.disabled)return;
   const status=document.getElementById('fpGiftStatus'),friendId=document.getElementById('fpGiftFriend')?.value;
   if(!friendId){status.textContent='Bitte einen Freund auswählen.';return}
   const amount=Number(document.getElementById('fpGiftAmount')?.value);
   if(!Number.isSafeInteger(amount)||amount<1||amount>100000){status.textContent='Bitte eine gültige Anzahl Diamanten eingeben.';return}
-  if(kind==='booster'&&!catalog[item]){status.textContent='Bitte ein Item auswählen.';return}
   const friend=friends.find(f=>String(f.id)===String(friendId));if(!friend)return;
   const description=amount+' Diamanten';
   if(!confirm(description+' an '+friend.name+' senden?'))return;
