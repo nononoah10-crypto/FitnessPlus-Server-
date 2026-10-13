@@ -2,6 +2,7 @@
 // FitnessPlus online backend. Node.js 22.13+ (node:sqlite), no npm modules.
 const http=require('node:http'),crypto=require('node:crypto'),fs=require('node:fs'),path=require('node:path');
 const {DatabaseSync}=require('node:sqlite');
+const {generateRegistrationOptions,verifyRegistrationResponse,generateAuthenticationOptions,verifyAuthenticationResponse}=require('@simplewebauthn/server');
 const PORT=Number(process.env.PORT||3000),HOST=process.env.HOST||'0.0.0.0';
 const ROOT=__dirname, WEB=path.join(ROOT,'public'), DBPATH=process.env.DB_PATH||path.join(ROOT,'fitnessplus.sqlite');
 fs.mkdirSync(path.dirname(DBPATH),{recursive:true});
@@ -44,6 +45,70 @@ function cookie(res,token,expire=false){const secure=process.env.NODE_ENV==='pro
 async function body(req){let raw='';for await(const chunk of req){raw+=chunk;if(raw.length>1600000)throw new Error('Eingabe zu groß')}try{return raw?JSON.parse(raw):{}}catch{throw new Error('Ungültiges JSON')}}
 function validName(s){return typeof s==='string'&&/^[\p{L}\p{N}_-]{3,24}$/u.test(s)}
 function startSession(res,u){const token=random(32),th=crypto.createHash('sha256').update(token).digest('hex');run('INSERT INTO sessions VALUES(?,?,?)',th,u.id,Date.now()+604800000);cookie(res,token);json(res,200,{user:publicUser(u)})}
+// Admin passkey: one credential in Supabase, independent of volatile SQLite.
+const PASSKEY_ORIGIN=process.env.PASSKEY_ORIGIN||'https://fitnessplus-server.onrender.com';
+const PASSKEY_RPID=new URL(PASSKEY_ORIGIN).hostname;
+const PASSKEY_ROW='admin-primary';
+const challenges=new Map();
+const passkeyReady=()=>!!(process.env.SUPABASE_URL&&process.env.SUPABASE_SECRET_KEY);
+function equalSecret(a,b){const x=crypto.createHash('sha256').update(String(a||'')).digest(),y=crypto.createHash('sha256').update(String(b||'')).digest();return crypto.timingSafeEqual(x,y)}
+async function passkeyStore(method,bodyData){
+ const base=process.env.SUPABASE_URL?.replace(/\/$/,'');
+ if(!base||!process.env.SUPABASE_SECRET_KEY)throw Error('Supabase ist nicht konfiguriert');
+ const url=base+'/rest/v1/fitnessplus_admin_passkeys'+(method==='GET'?'?credential_id=eq.'+PASSKEY_ROW+'&select=credential_id,public_key,counter':'');
+ const response=await fetch(url,{method,headers:{apikey:process.env.SUPABASE_SECRET_KEY,Authorization:'Bearer '+process.env.SUPABASE_SECRET_KEY,'content-type':'application/json',Prefer:'return=representation'},body:bodyData?JSON.stringify(bodyData):undefined,signal:AbortSignal.timeout(10000)});
+ if(!response.ok)throw Error('Supabase-Anfrage fehlgeschlagen ('+response.status+')');
+ return response.json();
+}
+async function storedPasskey(){const rows=await passkeyStore('GET');return rows.find(x=>x.credential_id===PASSKEY_ROW)||null}
+function putChallenge(kind,challenge){const id=random(24);challenges.set(id,{kind,challenge,expires:Date.now()+180000});return id}
+function takeChallenge(id,kind){const v=challenges.get(String(id));challenges.delete(String(id));return v&&v.kind===kind&&v.expires>Date.now()?v:null}
+function adminCookie(res,value,clear=false){res.setHeader('Set-Cookie',`fp_admin=${value}; HttpOnly; Secure; SameSite=Strict; Path=/api; ${clear?'Max-Age=0':'Max-Age=43200'}`)}
+function adminToken(){const payload=Buffer.from(JSON.stringify({exp:Date.now()+43200000,nonce:random(12)})).toString('base64url');const mac=crypto.createHmac('sha256',process.env.SUPABASE_SECRET_KEY).update(payload).digest('base64url');return payload+'.'+mac}
+function passkeySession(req){if(!process.env.SUPABASE_SECRET_KEY)return false;const value=cookies(req).fp_admin||'',parts=value.split('.');if(parts.length!==2)return false;const mac=crypto.createHmac('sha256',process.env.SUPABASE_SECRET_KEY).update(parts[0]).digest('base64url');if(!equalSecret(mac,parts[1]))return false;try{return JSON.parse(Buffer.from(parts[0],'base64url')).exp>Date.now()}catch{return false}}
+async function passkeyRoute(req,res,url,data){
+ if(!passkeyReady())return error(res,503,'Passkey-Konfiguration unvollständig');
+ if(req.method==='GET'&&url.pathname==='/api/passkey/status')return json(res,200,{registered:!!(await storedPasskey()),authorized:passkeySession(req)});
+ if(req.method==='POST'&&url.pathname==='/api/passkey/register/options'){
+  if(!process.env.ADMIN_PASSKEY_SETUP_TOKEN||!equalSecret(data.setupToken,process.env.ADMIN_PASSKEY_SETUP_TOKEN))return error(res,403,'Einrichtungscode ungültig');
+  if(await storedPasskey())return error(res,409,'Admin-Passkey bereits eingerichtet');
+  const options=await generateRegistrationOptions({rpName:'FitnessPlus Admin',rpID:PASSKEY_RPID,userName:'FitnessPlus Admin',userID:new Uint8Array(crypto.randomBytes(32)),attestationType:'none',authenticatorSelection:{residentKey:'required',userVerification:'required'},supportedAlgorithmIDs:[-7,-257]});
+  return json(res,200,{options,challengeId:putChallenge('register',options.challenge)});
+ }
+ if(req.method==='POST'&&url.pathname==='/api/passkey/register/verify'){
+  if(!process.env.ADMIN_PASSKEY_SETUP_TOKEN||!equalSecret(data.setupToken,process.env.ADMIN_PASSKEY_SETUP_TOKEN))return error(res,403,'Einrichtungscode ungültig');
+  const challenge=takeChallenge(data.challengeId,'register');if(!challenge)return error(res,400,'Einrichtung abgelaufen');
+  if(await storedPasskey())return error(res,409,'Admin-Passkey bereits eingerichtet');
+  const result=await verifyRegistrationResponse({response:data.credential,expectedChallenge:challenge.challenge,expectedOrigin:PASSKEY_ORIGIN,expectedRPID:PASSKEY_RPID,requireUserVerification:true});
+  if(!result.verified||!result.registrationInfo)return error(res,403,'Passkey konnte nicht geprüft werden');
+  const c=result.registrationInfo.credential;
+  const record={id:c.id,publicKey:Buffer.from(c.publicKey).toString('base64url'),counter:c.counter,transports:c.transports||[]};
+  // PRIMARY KEY insert ensures that simultaneous registrations cannot overwrite the first passkey.
+  await passkeyStore('POST',{credential_id:PASSKEY_ROW,public_key:JSON.stringify(record),counter:c.counter});
+  adminCookie(res,adminToken());return json(res,200,{ok:true});
+ }
+ if(req.method==='POST'&&url.pathname==='/api/passkey/login/options'){
+  const row=await storedPasskey();if(!row)return error(res,404,'Noch kein Admin-Passkey eingerichtet');
+  const c=JSON.parse(row.public_key);
+  const options=await generateAuthenticationOptions({rpID:PASSKEY_RPID,userVerification:'required',allowCredentials:[{id:c.id,transports:c.transports}]});
+  return json(res,200,{options,challengeId:putChallenge('login',options.challenge)});
+ }
+ if(req.method==='POST'&&url.pathname==='/api/passkey/login/verify'){
+  const challenge=takeChallenge(data.challengeId,'login');if(!challenge)return error(res,400,'Anmeldung abgelaufen');
+  const row=await storedPasskey();if(!row)return error(res,404,'Kein Passkey vorhanden');
+  const c=JSON.parse(row.public_key);
+  const result=await verifyAuthenticationResponse({response:data.credential,expectedChallenge:challenge.challenge,expectedOrigin:PASSKEY_ORIGIN,expectedRPID:PASSKEY_RPID,requireUserVerification:true,credential:{id:c.id,publicKey:Buffer.from(c.publicKey,'base64url'),counter:Number(row.counter),transports:c.transports}});
+  if(!result.verified)return error(res,403,'Anmeldung fehlgeschlagen');
+  // Counter updates are best effort: zero counters are common with synced passkeys.
+  if(result.authenticationInfo.newCounter>Number(row.counter)){
+   const response=await fetch(process.env.SUPABASE_URL.replace(/\/$/,'')+'/rest/v1/fitnessplus_admin_passkeys?credential_id=eq.'+PASSKEY_ROW,{method:'PATCH',headers:{apikey:process.env.SUPABASE_SECRET_KEY,Authorization:'Bearer '+process.env.SUPABASE_SECRET_KEY,'content-type':'application/json'},body:JSON.stringify({counter:result.authenticationInfo.newCounter})});
+   if(!response.ok)throw Error('Passkey-Zähler konnte nicht gespeichert werden');
+  }
+  adminCookie(res,adminToken());return json(res,200,{ok:true});
+ }
+ if(req.method==='POST'&&url.pathname==='/api/passkey/logout'){adminCookie(res,'',true);return json(res,200,{ok:true})}
+ return error(res,404,'Passkey-Endpunkt nicht gefunden');
+}
 const bucket=new Map();function rate(req){const ip=req.socket.remoteAddress||'unknown',now=Date.now(),k=ip+':'+req.url.split('?')[0],b=bucket.get(k)||{count:0,until:now+60000};if(now>b.until){b.count=0;b.until=now+60000}b.count++;bucket.set(k,b);return b.count<=40}
 function sameOrigin(req){const origin=req.headers.origin;if(!origin)return true;try{const o=new URL(origin);return o.host===req.headers.host&&['https:','http:'].includes(o.protocol)}catch{return false}}
 function audit(actor,subject,action,detail=''){run('INSERT INTO audit VALUES(?,?,?,?,?,?)',uid(),actor,subject,action,String(detail),Date.now())}
