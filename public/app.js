@@ -403,7 +403,7 @@ storeScreen=function(){
  const active=s.levelBoostUses>0?`${s.levelBoostMultiplier}× Fortschritt · ${s.levelBoostUses} Übung${s.levelBoostUses===1?'':'en'} übrig`:'Zurzeit kein Booster aktiv';
  return hdr('DIAMANTEN STORE','Deine Power-Ups.')+`<button class="btn" data-action="storeBack">← Zurück</button>
  <section class="shopHubHead"><div class="shopHubTop"><span>💎 DIAMANTEN STORE</span><span class="shopHubBalance">💎 ${Math.floor(s.diamonds)}</span></div><h2>Level schneller erreichen</h2><p>Trainiere und verstärke deinen Fortschritt mit Boostern.</p><div class="shopHubStatus">🏆 Level ${levelNumber()} <span>·</span> ${s.levelExercises%3}/3 bis zum nächsten Level</div><div class="shopHubStatus">⚡ ${active}</div></section>
- <div class="shopQuickGrid"><button class="shopQuick giftQuick" data-giftmenu="1"><span>🎁</span><b>Geschenke</b><small>Booster verschenken</small></button></div>
+ <div class="shopQuickGrid"><button class="shopQuick giftQuick" data-giftmenu="1"><span>🎁</span><b>Geschenke</b><small>Diamanten verschenken</small></button></div>
  <div class="shopSectionHead"><div><span class="eyebrow">POWER-UPS</span><h2 class="section">Level-Booster</h2></div><span class="shopCount">3 Produkte</span></div>
  <div class="boosterGrid shopNewGrid">${levelBoosters.map(i=>`<article class="boosterProduct shopNewProduct"><div class="boosterEmoji">${i.emoji}</div><div class="grow"><b>${i.name}</b><p>${i.desc}</p><strong>${i.price} 💎</strong></div><button class="shopButton" data-boostbuy="${i.id}" ${s.diamonds<i.price||s.levelBoostUses>0?'disabled':''}>${s.levelBoostUses>0?'Booster aktiv':s.diamonds<i.price?'Zu wenig 💎':'Kaufen'}</button></article>`).join('')}</div>
  <p class="shopNotice">Booster wirken nur bei wirklich abgeschlossenen Übungen. Diamanten und Freundes-Geschenke sind rein virtuell.</p>`;
@@ -721,6 +721,8 @@ function fp72LevelRedeem(){
 }
 const fp72BeforeGift=giftScreen;
 giftScreen=function(){return fp72BeforeGift()+`<div class="card"><b>🏆 Level-Änderung einlösen</b><p class="sub">Hast du vom Administrator einen Level-Code erhalten? Füge ihn hier ein. Ein Zurücksetzen auf Level 1 ist ebenfalls möglich.</p><textarea id="fp72LevelInput" class="input" rows="3" placeholder="FPL72-..."></textarea><button class="primary" data-fp72levelredeem="1">Level-Code einlösen</button></div>`};
+// Online-Geschenke: nur direkte Diamantenuebertragung, keine Codes.
+giftScreen=function(){return hdr('GESCHENKE','Diamanten direkt an Freunde senden.')+`<button class="btn" data-giftback="1">← Zum Diamantenshop</button><div class="card"><b>🎁 Geschenk an Freunde senden</b><p class="sub">Geschenke werden geladen ...</p></div>`};
 document.addEventListener('click',e=>{const b=e.target.closest('button[data-fp72levelredeem]');if(!b)return;e.preventDefault();e.stopImmediatePropagation();try{fp72LevelRedeem()}catch(err){toast(err.message||'Code ungültig')}},true);
 
 
