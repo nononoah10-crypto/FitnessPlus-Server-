@@ -48,7 +48,7 @@ function records(){
 function bestleistungen(){const rs=records();return hdr('DEINE BESTLEISTUNGEN','Deine persönlichen Rekorde.')+`<button class="primary outline" data-action="showStrength">Kraftentwicklung über 8 Wochen →</button>`+
  `<div class="card"><b>Deine Stärke im Blick</b><p class="sub">Hier erscheinen die höchsten eingetragenen Gewichte und Wiederholungen deiner abgeschlossenen Trainings. Nur abgehakte Sätze zählen.</p></div>`+
  (rs.length?rs.map(x=>`<div class="card"><div class="row"><b>${safe(x.name)}</b><span class="sub">${x.sets} dokumentierte Sätze</span></div><div class="metrics" style="margin-top:12px"><div class="metric"><div class="sub">Höchstes Gewicht</div><div class="value">${x.weight.toLocaleString('de-DE')} <span class="sub">kg</span></div></div><div class="metric"><div class="sub">Meiste Wiederholungen</div><div class="value">${x.reps}</div></div></div><div class="sub" style="margin-top:12px">Zuletzt trainiert: ${safe(x.last)} · Höchstes Satzvolumen: ${x.volume.toLocaleString('de-DE')} kg</div></div>`).join(''):`<div class="card"><b>Noch keine Bestleistungen gespeichert</b><p class="sub">Starte ein Training mit Übungen, hake Sätze ab und schließe das Training ab. Deine Rekorde erscheinen dann hier.</p><button class="primary" data-tab="train">Workout starten</button></div>`)+
- `<button class="primary outline" data-action="backProgress">← Zur Wochenübersicht</button><p class="sub" style="margin-top:15px">Wiederholungsrekord und Gewichtsrekord können aus unterschiedlichen Sätzen stammen. Rekorde sind keine medizinische Bewertung.</p>`}
+ `<button class="primary outline" data-action="backProgress">← Zu den Trainingsstatistiken</button><p class="sub" style="margin-top:15px">Wiederholungsrekord und Gewichtsrekord können aus unterschiedlichen Sätzen stammen. Rekorde sind keine medizinische Bewertung.</p>`}
 function strengthHistory(){
  const recordsByExercise=new Map();
  for(const h of s.history){const d=String(h.day||'');if(!/^\d{4}-\d\d-\d\d$/.test(d))continue;
@@ -1436,13 +1436,14 @@ function fpStatsStyles(){
 fpStatsStyles();
 const fpProgressBeforeExtendedStatistics=progress;
 progress=function(){
-  const original=fpProgressBeforeExtendedStatistics();
-  // Eigene Unterseiten (Freunde, Rekorde, Kraft) nicht ueberschreiben.
-  if(['records','strength','friends','levels'].includes(s.view))return original;
-  const panel=fpStatsPanel();
-  // Neues Dashboard nach der vorhandenen Titelzeile einsetzen.
-  const heading='<h1 class="title">Deine Trainingswochen.</h1>';
-  return original.includes(heading)?original.replace(heading,heading+panel):panel+original;
+  // Nur auf den Unterseiten werden die alten Ansichten noch gebraucht.
+  if(['records','strength','friends','levels'].includes(s.view)){
+    return fpProgressBeforeExtendedStatistics();
+  }
+  // Die Standard-Ansicht zeigt AUSSCHLIESSLICH die neuen Statistiken.
+  // Nicht den vorherigen HTML-Verlauf anhaengen: Er enthielt weiterhin
+  // die alte Wochenuebersicht und die doppelte Verlaufskarte.
+  return fpStatsPanel();
 };
 document.addEventListener('click',e=>{
   const button=e.target.closest('button');if(!button)return;
