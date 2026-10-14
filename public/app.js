@@ -408,25 +408,51 @@ const levelBoosters=[
  {id:'boost2long',emoji:'🚀',name:'Trainings-Turbo',desc:'2× Level-Fortschritt bei den nächsten 8 wirklich abgeschlossenen Übungen.',price:650,multiplier:2,uses:8},
  {id:'boost3mega',emoji:'🔥',name:'Mega-XP',desc:'3× Level-Fortschritt bei den nächsten 5 wirklich abgeschlossenen Übungen.',price:1000,multiplier:3,uses:5}
 ];
+// Server-Shop (auch ohne Login abrufbar): Preise und Angebote fuer alle Geraete.
+let fpShopReady=false,fpShopLoading=null,fpShopError='';
+async function fpShopRefresh(){
+ if(fpShopLoading)return fpShopLoading;
+ fpShopLoading=(async()=>{
+  try{
+   const response=await fetch('/api/shop',{credentials:'same-origin',cache:'no-store'});
+   if(!response.ok)throw Error('Shop-Server nicht erreichbar');
+   const data=await response.json();
+   if(!Array.isArray(data.items))throw Error('Shop-Daten fehlen');
+   const items=data.items.filter(x=>x&&typeof x.id==='string'&&Number.isSafeInteger(x.price)&&x.price>0&&[2,3].includes(x.multiplier)&&Number.isInteger(x.uses)&&x.uses>0);
+   levelBoosters.splice(0,levelBoosters.length,...items);
+   fpShopReady=true;fpShopError='';
+  }catch(err){fpShopError='Shop gerade nicht erreichbar. Bitte Internetverbindung pruefen.';}
+  if(s.view==='store')render();
+ })().finally(()=>{fpShopLoading=null});
+ return fpShopLoading;
+}
+setTimeout(fpShopRefresh,700);
+setInterval(()=>{if(!document.hidden)fpShopRefresh()},60000);
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)fpShopRefresh()});
+document.addEventListener('click',e=>{
+ if(e.target.closest('button[data-action="storeOpen"],button[data-giftback],button[data-action="rewardScreen"]'))fpShopRefresh();
+},true);
 s.levelBoostMultiplier=[2,3].includes(Number(s.levelBoostMultiplier))?Number(s.levelBoostMultiplier):1;
 s.levelBoostUses=Math.max(0,Math.floor(Number(s.levelBoostUses)||0));
 if(!s.levelBoostUses)s.levelBoostMultiplier=1;
 storeScreen=function(){
- const active=s.levelBoostUses>0?`${s.levelBoostMultiplier}× Fortschritt · ${s.levelBoostUses} Übung${s.levelBoostUses===1?'':'en'} übrig`:'Zurzeit kein Booster aktiv';
- return hdr('DIAMANTEN STORE','Deine Power-Ups.')+`<button class="btn" data-action="storeBack">← Zurück</button>
- <section class="shopHubHead"><div class="shopHubTop"><span>💎 DIAMANTEN STORE</span><span class="shopHubBalance">💎 ${Math.floor(s.diamonds)}</span></div><h2>Level schneller erreichen</h2><p>Trainiere und verstärke deinen Fortschritt mit Boostern.</p><div class="shopHubStatus">🏆 Level ${levelNumber()} <span>·</span> ${s.levelExercises%3}/3 bis zum nächsten Level</div><div class="shopHubStatus">⚡ ${active}</div></section>
- <div class="shopQuickGrid"><button class="shopQuick giftQuick" data-giftmenu="1"><span>🎁</span><b>Geschenke</b><small>Diamanten verschenken</small></button></div>
- <div class="shopSectionHead"><div><span class="eyebrow">POWER-UPS</span><h2 class="section">Level-Booster</h2></div><span class="shopCount">3 Produkte</span></div>
- <div class="boosterGrid shopNewGrid">${levelBoosters.map(i=>`<article class="boosterProduct shopNewProduct"><div class="boosterEmoji">${i.emoji}</div><div class="grow"><b>${i.name}</b><p>${i.desc}</p><strong>${i.price} 💎</strong></div><button class="shopButton" data-boostbuy="${i.id}" ${s.diamonds<i.price||s.levelBoostUses>0?'disabled':''}>${s.levelBoostUses>0?'Booster aktiv':s.diamonds<i.price?'Zu wenig 💎':'Kaufen'}</button></article>`).join('')}</div>
- <p class="shopNotice">Booster wirken nur bei wirklich abgeschlossenen Übungen. Diamanten und Freundes-Geschenke sind rein virtuell.</p>`;
+ const active=s.levelBoostUses>0?`${s.levelBoostMultiplier}\u00d7 Fortschritt \u00b7 ${s.levelBoostUses} ${s.levelBoostUses===1?'Uebung':'Uebungen'} uebrig`:'Zurzeit kein Booster aktiv';
+ const products=levelBoosters.filter(i=>i.active!==false);
+ return hdr('DIAMANTEN STORE','Deine Power-Ups.')+`<button class="btn" data-action="storeBack">\u2190 Zurueck</button>
+ <section class="shopHubHead"><div class="shopHubTop"><span>&#128142; DIAMANTEN STORE</span><span class="shopHubBalance">&#128142; ${Math.floor(s.diamonds)}</span></div><h2>Level schneller erreichen</h2><p>Trainiere und verstaerke deinen Fortschritt mit Boostern.</p><div class="shopHubStatus">&#127942; Level ${levelNumber()} <span>\u00b7</span> ${s.levelExercises%3}/3 bis zum naechsten Level</div><div class="shopHubStatus">&#9889; ${active}</div></section>
+ <div class="shopQuickGrid"><button class="shopQuick giftQuick" data-giftmenu="1"><span>&#127873;</span><b>Geschenke</b><small>Diamanten verschenken</small></button></div>
+ <div class="shopSectionHead"><div><span class="eyebrow">POWER-UPS</span><h2 class="section">Level-Booster</h2></div><span class="shopCount">${products.length} Produkte</span></div>
+ ${!fpShopReady?`<p class="sub" role="status">${safe(fpShopError||'Shop-Angebote werden geladen ...')}</p>`:''}
+ <div class="boosterGrid shopNewGrid">${products.map(i=>{const discount=Number(i.discountPercent)||0;const crossed=discount>0?`<span class="sub" style="text-decoration:line-through;margin-right:8px">${Number(i.basePrice)} &#128142;</span><b style="color:#068a60">-${discount}%</b>`:'';return `<article class="boosterProduct shopNewProduct"><div class="boosterEmoji">${safe(i.emoji)}</div><div class="grow"><b>${safe(i.name)}</b><p>${safe(i.desc)}</p>${crossed?`<div>${crossed}</div>`:''}<strong>${Number(i.price)} &#128142;</strong></div><button class="shopButton" data-boostbuy="${safe(i.id)}" ${!fpShopReady||s.diamonds<i.price||s.levelBoostUses>0?'disabled':''}>${!fpShopReady?'Laden ...':s.levelBoostUses>0?'Booster aktiv':s.diamonds<i.price?'Zu wenig Diamanten':'Kaufen'}</button></article>`}).join('')||'<p class="sub">Zurzeit gibt es keine Booster im Shop.</p>'}</div>
+ <p class="shopNotice">Alle Preise kommen direkt vom FitnessPlus-Server. Booster wirken nur bei abgeschlossenen Uebungen. Es handelt sich um virtuelle Diamanten ohne Geldwert.</p>`;
 };
-
 const levelStoreHome=home;
 home=function(){return levelStoreHome().replace('Hol dir neue Designs und Titel.','Hol dir Level-Booster.').replace('💎 Diamanten-Store','💎 Diamanten Store')};
 document.addEventListener('click',e=>{
  const b=e.target.closest('button[data-boostbuy]');if(!b)return;
  e.preventDefault();e.stopImmediatePropagation();
  const i=levelBoosters.find(x=>x.id===b.dataset.boostbuy);if(!i)return;
+ if(!fpShopReady){toast('Shoppreise werden geladen. Bitte warten.');fpShopRefresh();return}
  if(s.levelBoostUses>0){toast('Verbrauche zuerst deinen aktiven Booster.');return}
  if(s.diamonds<i.price){toast('Nicht genug Diamanten.');return}
  if(!confirm(i.name+' für '+i.price+' Diamanten kaufen?'))return;
@@ -914,9 +940,10 @@ window.addEventListener('click',async e=>{
  if(b.dataset.chestopen!==undefined){e.preventDefault();e.stopPropagation();e.stopImmediatePropagation();await openCloudChest(b.dataset.chestopen);return}
  if(b.dataset.boostbuy!==undefined){e.preventDefault();e.stopPropagation();e.stopImmediatePropagation();
   const item=levelBoosters.find(i=>i.id===b.dataset.boostbuy);if(!item)return;
+  if(!fpShopReady){toast('Shop wird geladen. Bitte kurz warten.');fpShopRefresh();return;}
   if(!confirm(item.name+' für '+item.price+' Diamanten online kaufen?'))return;
-  try{const x=await req('/api/game/shop/buy',{item:item.id});s.diamonds=x.user.diamonds;s.levelBoostUses=x.booster.uses;s.levelBoostMultiplier=x.booster.multiplier;save();render();toast(item.name+' online aktiviert!')}
-  catch(err){toast(err.message)}return;
+  try{const x=await req('/api/game/shop/buy',{item:item.id,expectedPrice:item.price});s.diamonds=x.user.diamonds;s.levelBoostUses=x.booster.uses;s.levelBoostMultiplier=x.booster.multiplier;save();render();toast(item.name+' online aktiviert!')}
+  catch(err){toast(err.message);fpShopRefresh()}return;
  }
  if(b.dataset.dailyclaim!==undefined){e.preventDefault();e.stopPropagation();e.stopImmediatePropagation();
   try{const x=await req('/api/game/daily');s.diamonds=x.user.diamonds;s.dailyReward.last=day();save();render();toast('🎉 +'+x.diamonds+' tägliche Diamanten!')}catch(err){toast(err.message)}return;
