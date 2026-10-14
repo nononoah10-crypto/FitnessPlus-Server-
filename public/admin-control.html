@@ -13,6 +13,24 @@
 .playerFootnote{font-size:12px;line-height:1.5;color:#657e76;margin:12px 0 0}.playerJump{margin-top:12px}
 .playerRow:focus-visible,.playerJump:focus-visible{outline:3px solid #17a783;outline-offset:2px}
 @media(max-width:370px){.playerCounters{grid-template-columns:repeat(3,minmax(0,1fr));gap:5px}.playerCounter small{font-size:10px}.playerDetails{gap:6px}}
+</style><style>
+/* FitnessPlus Admin 4/7: central booster shop editor */
+.shopAdminIntro{font-size:13px;color:#657e76;line-height:1.5;margin:4px 0 14px}
+.shopAdminProduct{padding:14px;border:1px solid #d9e9e1;border-radius:16px;margin:12px 0;background:#f8fcfa}
+.shopAdminProduct h3{font-size:16px;margin:0 0 8px}
+.shopAdminProduct .shopAdminTag{font-size:12px;color:#578175}
+.shopAdminProduct .row{align-items:center}
+.shopAdminProduct .shopAdminCheck{display:flex;align-items:center;gap:8px;font-size:13px;margin:6px 0 10px}
+.shopAdminCheck input{width:18px;height:18px;margin:0;flex:0 0 18px;accent-color:#087a67}
+.shopAdminProduct input,.shopAdminProduct select{margin-bottom:8px}
+.shopAdminGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.shopAdminGrid label{min-width:0}.shopAdminGrid input{min-width:0}
+.shopAdminPreview{font-weight:700;color:#087a67;font-size:14px;margin:6px 0 12px}
+.shopAdminProduct button{margin-bottom:0}
+.shopAdminNew{border:1px dashed #8fc8ae;padding:14px;border-radius:16px;margin-top:15px;background:#f2faf6}
+.shopAdminNew summary{font-weight:750;cursor:pointer;margin-bottom:8px}
+.shopAdminNotice{font-size:13px;color:#476e61;margin:12px 0 0}
+@media(max-width:365px){.shopAdminGrid{grid-template-columns:1fr}}
 </style></head><body><main><div class="hero"><img src="/icons/icon-192.png" alt="FitnessPlus Logo"><h1>FitnessPlus</h1><p>Dein Training. Dein Fortschritt.</p></div><div id="status" class="status">Verbindung wird geprüft …</div><section id="login" class="card hide"><h2>Mit Face ID anmelden</h2><p>Melde dich sicher mit deinem gespeicherten Passkey an.</p><button id="face-login" onclick="faceLogin()">Mit Face ID anmelden</button></section><div id="panel" class="hide"><section class="card"><strong id="who">Privates Admin-Gerät</strong></section><section class="card" id="playerCenter"><div class="eyebrow">FUNKTION 3 VON 7</div>
 <h2>👥 Spieler-Verwaltung</h2><p class="playerIntro">Alle FitnessPlus-Accounts durchsuchen, einen Spieler auswählen und seine echten Online-Fortschritte ansehen.</p>
 <div class="playerCounters"><div class="playerCounter"><b id="playerTotal">–</b><small>Konten insgesamt</small></div><div class="playerCounter"><b id="playerMembers">–</b><small>Spieler geladen</small></div><div class="playerCounter"><b id="playerAdmins">–</b><small>Admins geladen</small></div></div>
@@ -23,7 +41,26 @@
 <div id="playerProfile" class="playerProfile" hidden aria-live="polite"></div>
 <button type="button" class="alt" id="playerRefresh">↻ Spielerliste aktualisieren</button>
 <p class="playerFootnote">Du siehst gespeicherte Konten, keine Live-Anwesenheit. Nur serverseitig bestätigte Übungen zählen zu den Trainingszahlen. Für Diamanten, Level oder Zurücksetzen wähle einen Spieler aus und verwende die bestehenden Admin-Werkzeuge.</p>
-</section><section class="card"><h2>🎁 Diamanten & Level</h2><label>Nutzer wählen<select id="users"></select></label><label>Diamanten verschenken<input id="diamonds" type="number" min="1" max="100000" value="50"></label><button id="give">💎 Diamanten senden</button><label>Level festlegen<input id="level" type="number" min="1" max="10000" value="1"></label><button id="setlevel">Level setzen</button><button id="resetlevel" class="alt">Level auf 1 zurücksetzen</button><hr><h2>Spielstand zurücksetzen</h2><p><small>Setzt Training, XP, Diamanten, Truhen, Shop, Booster, Glücksrad und Season-Pass-Fortschritt auf null. Anmeldung, Freundescode und Freundschaften bleiben erhalten. Bereits gesendete, noch offene Geschenkcodes dieses Nutzers werden ungültig.</small></p><button id="resetplayer" style="background:#9f2432">Gesamten Spielstand zurücksetzen</button></section><section class="card"><h2>Account löschen</h2><p><small>Löscht den ausgewählten Account einschließlich Anmeldung, Spielstand, Diamanten, Trainingsdaten, Freundschaften und Geschenken dauerhaft. Das kann nicht rückgängig gemacht werden.</small></p><button id="deleteuser" style="background:#9f2432">Account dauerhaft löschen</button></section><section class="card eventCenter" id="eventCenter"><div class="eventHead"><div><div class="eyebrow">FITNESSPLUS LIVE</div><h2>🎉 Live-Event-Zentrale</h2><p class="eventIntro">Steuere, welche Aktionen gerade für alle angemeldeten Spieler aktiv sind.</p></div><span class="eventLive" id="eventLiveIndicator">● Prüfen …</span></div><div class="eventSummary" role="status"><div><strong id="eventCount">0</strong><small>aktive Aktionen</small></div><div><strong id="eventLast">–</strong><small>Zuletzt geändert</small></div></div><div class="eventGrid"><div class="eventTile" data-eventtile="doubleXp"><div class="eventTileTop"><div class="eventIcon">⚡</div><span class="eventBadge" data-badge="doubleXp">Inaktiv</span></div><h3>Doppel-XP</h3><p>Abgeschlossene Übungen bringen doppelte XP, sofern kein eigener Booster aktiv ist.</p><button type="button" data-event="doubleXp">Aktivieren</button></div><div class="eventTile" data-eventtile="wheel"><div class="eventTileTop"><div class="eventIcon">🎡</div><span class="eventBadge" data-badge="wheel">Inaktiv</span></div><h3>Glücksrad</h3><p>Spieler können täglich einmal am Online-Glücksrad drehen und Diamanten gewinnen.</p><button type="button" data-event="wheel">Aktivieren</button></div><div class="eventTile" data-eventtile="season"><div class="eventTileTop"><div class="eventIcon">🏆</div><span class="eventBadge" data-badge="season">Inaktiv</span></div><h3>Season-Pass</h3><p>Spieler sammeln Fortschritt und können freigeschaltete Stufen einlösen.</p><button type="button" data-event="season">Aktivieren</button></div><div class="eventTile" data-eventtile="giftDiamonds"><div class="eventTileTop"><div class="eventIcon">🎁</div><span class="eventBadge" data-badge="giftDiamonds">Inaktiv</span></div><h3>50 Diamanten für alle</h3><p>Aktiviere ein Geschenk, das angemeldete Spieler selbst abholen können.</p><button type="button" data-event="giftDiamonds">Aktivieren</button></div></div><div class="eventTools"><button type="button" id="eventrefresh" class="alt">↻ Live-Status aktualisieren</button><button type="button" id="end" class="eventStop">■ Alle Events beenden</button></div><p class="eventFoot" id="eventstate">Aktiv: Keine Events</p><p class="eventHint">Die Änderungen werden sofort am Server gespeichert. Spieler sehen sie nach der nächsten Aktualisierung ihrer App. Das Geschenk muss in der App abgeholt werden.</p></section><section class="card" id="broadcastAdminCard"><div class="eyebrow">FUNKTION 2 VON 7</div><h2>💎 Diamanten an alle Spieler</h2>
+</section><section class="card"><h2>🎁 Diamanten & Level</h2><label>Nutzer wählen<select id="users"></select></label><label>Diamanten verschenken<input id="diamonds" type="number" min="1" max="100000" value="50"></label><button id="give">💎 Diamanten senden</button><label>Level festlegen<input id="level" type="number" min="1" max="10000" value="1"></label><button id="setlevel">Level setzen</button><button id="resetlevel" class="alt">Level auf 1 zurücksetzen</button><hr><h2>Spielstand zurücksetzen</h2><p><small>Setzt Training, XP, Diamanten, Truhen, Shop, Booster, Glücksrad und Season-Pass-Fortschritt auf null. Anmeldung, Freundescode und Freundschaften bleiben erhalten. Bereits gesendete, noch offene Geschenkcodes dieses Nutzers werden ungültig.</small></p><button id="resetplayer" style="background:#9f2432">Gesamten Spielstand zurücksetzen</button></section><section class="card"><h2>Account löschen</h2><p><small>Löscht den ausgewählten Account einschließlich Anmeldung, Spielstand, Diamanten, Trainingsdaten, Freundschaften und Geschenken dauerhaft. Das kann nicht rückgängig gemacht werden.</small></p><button id="deleteuser" style="background:#9f2432">Account dauerhaft löschen</button></section><section class="card" id="shopEditor">
+ <div class="eyebrow">FUNKTION 4 VON 7</div>
+ <h2>&#128722; Shop-Editor</h2>
+ <p class="shopAdminIntro">Steuere Level-Booster und Preise direkt hier. Deine &Auml;nderungen erscheinen im Shop aller FitnessPlus-Spieler ohne neues GitHub-Update.</p>
+ <div id="shopAdminList" aria-live="polite"><p><small>Shop-Angebote werden geladen ...</small></p></div>
+ <div id="shopAdminMessage" role="status" class="shopAdminNotice"></div>
+ <button type="button" id="shopAdminRefresh" class="alt">&#8635; Shop neu laden</button>
+ <details class="shopAdminNew" id="shopNewDetails">
+  <summary>&#10133; Neuen Booster hinzuf&uuml;gen</summary>
+  <form id="shopCreateForm">
+   <label>Name<input name="name" maxlength="45" required placeholder="z. B. Power-Blitz"></label>
+   <label>Beschreibung<input name="desc" maxlength="160" placeholder="Kurz beschreiben, was der Booster macht"></label>
+   <label>Symbol<input name="emoji" maxlength="16" required value="&#9889;"></label>
+   <div class="shopAdminGrid"><label>XP-Multiplikator<select name="multiplier"><option value="2">2x XP</option><option value="3">3x XP</option></select></label><label>Anzahl &Uuml;bungen<input name="uses" type="number" min="1" max="30" step="1" required value="5"></label></div>
+   <div class="shopAdminGrid"><label>Preis in Diamanten<input name="basePrice" type="number" min="1" max="1000000" step="1" required value="500"></label><label>Rabatt in %<input name="discountPercent" type="number" min="0" max="90" step="1" required value="0"></label></div>
+   <button type="submit">Booster f&uuml;r alle hinzuf&uuml;gen</button>
+  </form>
+ </details>
+ <p class="shopAdminNotice">Alle Betr&auml;ge sind virtuelle Diamanten. Rabatte gelten sofort f&uuml;r neue K&auml;ufe. Bereits gekaufte Booster behalten ihre bisherigen Eigenschaften.</p>
+ </section><section class="card eventCenter" id="eventCenter"><div class="eventHead"><div><div class="eyebrow">FITNESSPLUS LIVE</div><h2>🎉 Live-Event-Zentrale</h2><p class="eventIntro">Steuere, welche Aktionen gerade für alle angemeldeten Spieler aktiv sind.</p></div><span class="eventLive" id="eventLiveIndicator">● Prüfen …</span></div><div class="eventSummary" role="status"><div><strong id="eventCount">0</strong><small>aktive Aktionen</small></div><div><strong id="eventLast">–</strong><small>Zuletzt geändert</small></div></div><div class="eventGrid"><div class="eventTile" data-eventtile="doubleXp"><div class="eventTileTop"><div class="eventIcon">⚡</div><span class="eventBadge" data-badge="doubleXp">Inaktiv</span></div><h3>Doppel-XP</h3><p>Abgeschlossene Übungen bringen doppelte XP, sofern kein eigener Booster aktiv ist.</p><button type="button" data-event="doubleXp">Aktivieren</button></div><div class="eventTile" data-eventtile="wheel"><div class="eventTileTop"><div class="eventIcon">🎡</div><span class="eventBadge" data-badge="wheel">Inaktiv</span></div><h3>Glücksrad</h3><p>Spieler können täglich einmal am Online-Glücksrad drehen und Diamanten gewinnen.</p><button type="button" data-event="wheel">Aktivieren</button></div><div class="eventTile" data-eventtile="season"><div class="eventTileTop"><div class="eventIcon">🏆</div><span class="eventBadge" data-badge="season">Inaktiv</span></div><h3>Season-Pass</h3><p>Spieler sammeln Fortschritt und können freigeschaltete Stufen einlösen.</p><button type="button" data-event="season">Aktivieren</button></div><div class="eventTile" data-eventtile="giftDiamonds"><div class="eventTileTop"><div class="eventIcon">🎁</div><span class="eventBadge" data-badge="giftDiamonds">Inaktiv</span></div><h3>50 Diamanten für alle</h3><p>Aktiviere ein Geschenk, das angemeldete Spieler selbst abholen können.</p><button type="button" data-event="giftDiamonds">Aktivieren</button></div></div><div class="eventTools"><button type="button" id="eventrefresh" class="alt">↻ Live-Status aktualisieren</button><button type="button" id="end" class="eventStop">■ Alle Events beenden</button></div><p class="eventFoot" id="eventstate">Aktiv: Keine Events</p><p class="eventHint">Die Änderungen werden sofort am Server gespeichert. Spieler sehen sie nach der nächsten Aktualisierung ihrer App. Das Geschenk muss in der App abgeholt werden.</p></section><section class="card" id="broadcastAdminCard"><div class="eyebrow">FUNKTION 2 VON 7</div><h2>💎 Diamanten an alle Spieler</h2>
 <p class="eventIntro">Verschenke nur Diamanten, keine besonderen Gegenstaende oder Booster. Alle bereits registrierten Spieler koennen ihre Diamanten einmal abholen.</p>
 <label for="broadcastTitle">Titel</label><input id="broadcastTitle" maxlength="80" placeholder="z. B. Danke fuer 100 Spieler!" value="Diamanten von FitnessPlus">
 <label for="broadcastMessage">Nachricht (freiwillig)</label><textarea id="broadcastMessage" rows="3" maxlength="300" placeholder="Viel Spass mit deinem Geschenk!"></textarea>
@@ -184,6 +221,98 @@ load=async function(){
  renderPlayers();
  if(keep)await showPlayer(keep);
  else{playerSelectedId='';el('playerProfile').hidden=true;}
+};
+
+// FitnessPlus Funktion 4/7: Live Shop-Editor. All writes use admin-only server endpoints.
+let shopAdminItems=[],shopAdminVersion=0,shopAdminBusy=false;
+const shopAdminFormat=x=>Number(x).toLocaleString('de-DE');
+function shopAdminRow(i){
+ const custom=String(i.id).startsWith('custom_');
+ return `<div class="shopAdminProduct" data-shop-product="${safe(i.id)}">
+ <h3>${safe(i.emoji)} ${safe(i.name)}</h3>
+ <p class="shopAdminTag">${custom?'Eigener Booster': 'Standard-Booster'} &middot; ${i.multiplier}x XP &middot; ${i.uses} Uebungen</p>
+ <label>Name<input data-shop-field="name" maxlength="45" value="${safe(i.name)}" required></label>
+ <label>Beschreibung<input data-shop-field="desc" maxlength="160" value="${safe(i.desc)}"></label>
+ <label>Symbol<input data-shop-field="emoji" maxlength="16" value="${safe(i.emoji)}" required></label>
+ ${custom?`<div class="shopAdminGrid"><label>Multiplikator<select data-shop-field="multiplier"><option value="2" ${i.multiplier===2?'selected':''}>2x XP</option><option value="3" ${i.multiplier===3?'selected':''}>3x XP</option></select></label><label>Uebungen<input type="number" data-shop-field="uses" min="1" max="30" step="1" value="${i.uses}"></label></div>`:''}
+ <div class="shopAdminGrid"><label>Preis in Diamanten<input data-shop-field="basePrice" type="number" step="1" min="1" max="1000000" value="${i.basePrice}"></label><label>Rabatt in %<input data-shop-field="discountPercent" type="number" step="1" min="0" max="90" value="${i.discountPercent}"></label></div>
+ <div class="shopAdminPreview" data-shop-preview>Neuer Preis: ${shopAdminFormat(i.price)} Diamanten</div>
+ <label class="shopAdminCheck"><input type="checkbox" data-shop-field="active" ${i.active?'checked':''}> Im Shop anzeigen</label>
+ <button type="button" data-shop-save="${safe(i.id)}">Diesen Booster speichern</button>
+ </div>`;
+}
+function shopAdminRender(){
+ const host=el('shopAdminList');
+ host.innerHTML=shopAdminItems.map(shopAdminRow).join('')||'<p>Keine Booster vorhanden.</p>';
+}
+async function shopAdminLoad(){
+ const result=await api('admin/shop');
+ shopAdminItems=Array.isArray(result.items)?result.items:[];
+ shopAdminVersion=Number(result.version)||0;
+ shopAdminRender();
+ el('shopAdminMessage').textContent='Aktuell: '+shopAdminItems.length+' Booster (auch deaktivierte).';
+}
+function shopAdminForm(row,existing){
+ const value=key=>row.querySelector('[data-shop-field="'+key+'"]')?.value;
+ const num=key=>Number(value(key));
+ return {
+  name:String(value('name')||'').trim(),desc:String(value('desc')||'').trim(),emoji:String(value('emoji')||'').trim(),
+  basePrice:num('basePrice'),discountPercent:num('discountPercent'),
+  multiplier:existing.multiplier,uses:existing.uses,
+  active:!!row.querySelector('[data-shop-field="active"]')?.checked
+ };
+}
+function shopAdminPreview(row){
+ const base=Number(row.querySelector('[data-shop-field="basePrice"]')?.value);
+ const percent=Number(row.querySelector('[data-shop-field="discountPercent"]')?.value);
+ const preview=row.querySelector('[data-shop-preview]');
+ if(preview)preview.textContent='Neuer Preis: '+(Number.isFinite(base)&&Number.isFinite(percent)&&base>=1&&percent>=0&&percent<=90?shopAdminFormat(Math.max(1,Math.round(base*(100-percent)/100)))+' Diamanten':'Eingaben pruefen');
+}
+el('shopAdminList').addEventListener('input',event=>{
+ const row=event.target.closest('[data-shop-product]');if(row)shopAdminPreview(row);
+});
+el('shopAdminList').addEventListener('click',event=>{
+ const button=event.target.closest('button[data-shop-save]');if(!button)return;
+ attempt(async()=>{
+  if(shopAdminBusy)return;
+  const id=button.dataset.shopSave,existing=shopAdminItems.find(x=>x.id===id),row=button.closest('[data-shop-product]');
+  if(!existing||!row)throw Error('Bitte Shop neu laden');
+  const data=shopAdminForm(row,existing);
+  if(String(id).startsWith('custom_')){
+   data.multiplier=Number(row.querySelector('[data-shop-field="multiplier"]')?.value);
+   data.uses=Number(row.querySelector('[data-shop-field="uses"]')?.value);
+  }
+  if(!confirm('Shop-Angebot "'+data.name+'" fuer alle Spieler speichern?'))return;
+  shopAdminBusy=true;button.disabled=true;
+  try{
+   await api('admin/shop','POST',{mode:'update',id,version:shopAdminVersion,...data});
+   await shopAdminLoad();status('Shop-Angebot erfolgreich fuer alle gespeichert.');
+  }catch(err){await shopAdminLoad().catch(()=>{});throw err;}
+  finally{shopAdminBusy=false;button.disabled=false}
+ });
+});
+el('shopCreateForm').addEventListener('submit',event=>{
+ event.preventDefault();
+ attempt(async()=>{
+  if(shopAdminBusy)return;
+  const form=el('shopCreateForm'),data=Object.fromEntries(new FormData(form).entries());
+  for(const key of ['multiplier','uses','basePrice','discountPercent'])data[key]=Number(data[key]);
+  data.active=true;
+  if(!confirm('Neuen Booster "'+data.name+'" fuer alle Spieler erstellen?'))return;
+  shopAdminBusy=true;const button=form.querySelector('button[type="submit"]');button.disabled=true;
+  try{
+   await api('admin/shop','POST',{mode:'create',version:shopAdminVersion,...data});
+   form.reset();el('shopNewDetails').open=false;await shopAdminLoad();status('Neuer Booster ist jetzt im Online-Shop verfuegbar.');
+  }catch(err){await shopAdminLoad().catch(()=>{});throw err;}
+  finally{shopAdminBusy=false;button.disabled=false}
+ });
+});
+el('shopAdminRefresh').onclick=()=>attempt(async()=>{await shopAdminLoad();status('Shop vom Server aktualisiert.');});
+const shopAdminPreviousLoad=load;
+load=async function(){
+ await shopAdminPreviousLoad();
+ if(el('panel').classList.contains('hide'))return;
+ try{await shopAdminLoad()}catch(err){el('shopAdminMessage').textContent='Shop konnte nicht geladen werden: '+err.message}
 };
 
 load().catch(async()=>{try{await showLogin()}catch(e){status('Verbindung prüfen: '+e.message,true)}});
