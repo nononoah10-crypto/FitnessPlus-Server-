@@ -56,6 +56,13 @@ db.exec(`CREATE TABLE IF NOT EXISTS game_wheel_spins (
  event_id TEXT NOT NULL, award_day TEXT NOT NULL, diamonds INTEGER NOT NULL CHECK(diamonds>0), created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_game_wheel_spins_daily ON game_wheel_spins(user_id,event_id,award_day);`);
+
+// Admin live statistics: recent authenticated API activity, no tracking of page content.
+db.exec(`CREATE TABLE IF NOT EXISTS user_activity (
+ user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+ last_seen INTEGER NOT NULL
+);`);
+
 const WHEEL_KEY='wheel_config_v1';
 const WHEEL_DEFAULT={version:0,maxSpinsPerDay:1,prizes:[
  {diamonds:5,weight:40},{diamonds:10,weight:25},{diamonds:15,weight:18},
@@ -124,6 +131,47 @@ function shopEditFields(data,existing){
 }
 
 const q=(sql,...args)=>db.prepare(sql).get(...args), all=(sql,...args)=>db.prepare(sql).all(...args), run=(sql,...args)=>db.prepare(sql).run(...args);
+
+// A visible, authenticated app periodically requests /api/state. Record recent API usage
+// at most once every 30 seconds per account, without recording IP addresses or devices.
+function touchActivity(user){
+ if(user.role!=='user')return;
+ const now=Date.now(),existing=q('SELECT last_seen FROM user_activity WHERE user_id=?',user.id);
+ if(!existing||now-existing.last_seen>=30000)
+  run('INSERT INTO user_activity(user_id,last_seen) VALUES(?,?) ON CONFLICT(user_id) DO UPDATE SET last_seen=excluded.last_seen',user.id,now);
+}
+function adminLiveStatistics(){
+ const now=Date.now(),since7=now-7*86400000,since24=now-86400000;
+ const count=(sql,...params)=>Number(q(sql,...params)?.n||0);
+ const overview={
+  players:count("SELECT COUNT(*) n FROM users WHERE role='user'"),
+  active5m:count("SELECT COUNT(*) n FROM user_activity a JOIN users u ON u.id=a.user_id WHERE u.role='user' AND a.last_seen>=?",now-300000),
+  active24h:count("SELECT COUNT(*) n FROM user_activity a JOIN users u ON u.id=a.user_id WHERE u.role='user' AND a.last_seen>=?",since24),
+  newPlayers7d:count("SELECT COUNT(*) n FROM users WHERE role='user' AND created_at>=?",since7),
+  workouts7d:count("SELECT COUNT(DISTINCT e.run_id) n FROM game_exercises e JOIN game_runs r ON r.id=e.run_id JOIN users u ON u.id=r.user_id WHERE u.role='user' AND e.awarded_at>=?",since7),
+  exercises7d:count("SELECT COUNT(*) n FROM game_exercises e JOIN game_runs r ON r.id=e.run_id JOIN users u ON u.id=r.user_id WHERE u.role='user' AND e.awarded_at>=?",since7),
+  chests7d:count("SELECT COUNT(*) n FROM game_chests c JOIN users u ON u.id=c.user_id WHERE u.role='user' AND c.opened_at>=?",since7),
+  spins7d:count("SELECT COUNT(*) n FROM game_wheel_spins w JOIN users u ON u.id=w.user_id WHERE u.role='user' AND w.created_at>=?",since7)
+   +count("SELECT COUNT(*) n FROM game_wheel w JOIN users u ON u.id=w.user_id WHERE u.role='user' AND w.award_day>=?",new Date(since7).toISOString().slice(0,10)),
+  diamondsHeld:count("SELECT COALESCE(SUM(diamonds),0) n FROM users WHERE role='user'")
+ };
+ const today=new Date(now).toISOString().slice(0,10);
+ const dates=Array.from({length:7},(_,i)=>new Date(Date.parse(today+'T12:00:00Z')+(i-6)*86400000).toISOString().slice(0,10));
+ const daily=dates.map(date=>({date,newPlayers:0,workouts:0,exercises:0,spins:0}));
+ const index=new Map(daily.map(d=>[d.date,d]));
+ for(const x of all("SELECT strftime('%Y-%m-%d',created_at/1000,'unixepoch') date, COUNT(*) n FROM users WHERE role='user' AND created_at>=? GROUP BY date",Date.parse(dates[0]+'T00:00:00Z')))index.get(x.date)&&(index.get(x.date).newPlayers=x.n);
+ for(const x of all("SELECT strftime('%Y-%m-%d',e.awarded_at/1000,'unixepoch') date, COUNT(*) exercises, COUNT(DISTINCT e.run_id) workouts FROM game_exercises e JOIN game_runs r ON r.id=e.run_id JOIN users u ON u.id=r.user_id WHERE u.role='user' AND e.awarded_at>=? GROUP BY date",Date.parse(dates[0]+'T00:00:00Z'))){const d=index.get(x.date);if(d){d.exercises=x.exercises;d.workouts=x.workouts}}
+ for(const x of all("SELECT strftime('%Y-%m-%d',w.created_at/1000,'unixepoch') date, COUNT(*) n FROM game_wheel_spins w JOIN users u ON u.id=w.user_id WHERE u.role='user' AND w.created_at>=? GROUP BY date",Date.parse(dates[0]+'T00:00:00Z')))index.get(x.date)&&(index.get(x.date).spins+=x.n);
+ for(const x of all("SELECT w.award_day date, COUNT(*) n FROM game_wheel w JOIN users u ON u.id=w.user_id WHERE u.role='user' AND w.award_day>=? GROUP BY date",dates[0]))index.get(x.date)&&(index.get(x.date).spins+=x.n);
+ const recent=[
+  ...all("SELECT u.username player, u.created_at at, 'register' kind FROM users u WHERE u.role='user' ORDER BY created_at DESC LIMIT 7"),
+  ...all("SELECT u.username player, e.awarded_at at, 'exercise' kind FROM game_exercises e JOIN game_runs r ON r.id=e.run_id JOIN users u ON u.id=r.user_id WHERE u.role='user' ORDER BY e.awarded_at DESC LIMIT 7"),
+  ...all("SELECT u.username player, c.opened_at at, 'chest' kind FROM game_chests c JOIN users u ON u.id=c.user_id WHERE u.role='user' AND c.opened_at IS NOT NULL ORDER BY c.opened_at DESC LIMIT 7"),
+  ...all("SELECT u.username player, w.created_at at, 'wheel' kind FROM game_wheel_spins w JOIN users u ON u.id=w.user_id WHERE u.role='user' ORDER BY w.created_at DESC LIMIT 7")
+ ].sort((a,b)=>b.at-a.at).slice(0,8);
+ return {generatedAt:now,overview,daily,recent};
+}
+
 const uid=()=>crypto.randomUUID(), random=(n=24)=>crypto.randomBytes(n).toString('base64url');
 function hashPass(password,salt){return crypto.scryptSync(password,salt,64).toString('hex')}
 function authPass(u,password){const cand=Buffer.from(hashPass(password,u.salt),'hex');return crypto.timingSafeEqual(cand,Buffer.from(u.passhash,'hex'))}
@@ -232,6 +280,7 @@ async function handler(req,res){try{
  const passkeyAdmin=passkeySession(req);
  const u=session(req)||(passkeyAdmin&&(url.pathname.startsWith('/api/admin/')||url.pathname==='/api/events')?{id:'passkey-admin',role:'admin'}:null);
  if(!u)return error(res,401,'Bitte anmelden');
+  touchActivity(u);
  if(req.method==='POST'&&url.pathname==='/api/logout'){const tok=cookies(req).fp_session;run('DELETE FROM sessions WHERE token_hash=?',crypto.createHash('sha256').update(tok).digest('hex'));cookie(res,'',true);return json(res,200,{ok:true})}
  if(req.method==='GET'&&url.pathname==='/api/state'){
   const row=q('SELECT revision,payload,updated_at FROM cloud_state WHERE user_id=?',u.id);
@@ -453,6 +502,7 @@ async function handler(req,res){try{
  if(req.method==='GET'&&url.pathname==='/api/announcements')return json(res,200,{message:JSON.parse(q('SELECT value FROM settings WHERE key=?','announcement')?.value||'null')});
  if(req.method==='GET'&&url.pathname==='/api/events')return json(res,200,{events:JSON.parse(q('SELECT value FROM settings WHERE key=?','events')?.value||'{}')});
  if(u.role!=='admin')return error(res,403,'Nur Administrator');
+  if(req.method==='GET'&&url.pathname==='/api/admin/live-stats')return json(res,200,adminLiveStatistics());
   // Nur Passkey-Admin oder ein authentifiziertes Admin-Konto darf versenden.
   if(req.method==='GET'&&url.pathname==='/api/admin/broadcast-gifts'){
    const gifts=all(`SELECT g.*, (SELECT COUNT(*) FROM broadcast_gift_claims c WHERE c.gift_id=g.id) AS claimed_count,
