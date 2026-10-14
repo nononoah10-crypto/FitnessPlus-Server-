@@ -906,8 +906,16 @@ function fpTodoCard(){
     <form id="fpTodoForm" style="display:flex;gap:8px;margin-top:12px"><input class="input" name="task" required maxlength="100" placeholder="Neue Aufgabe ..." aria-label="Neue Aufgabe" style="min-width:0;flex:1"><button class="btn" type="submit">+ Hinzufügen</button></form>
     <p class="sub" style="margin-top:10px">Die Häkchen werden am nächsten Tag automatisch zurückgesetzt.</p></div>`;
 }
-const fpHomeBeforeTodo=home;
-home=function(){return fpHomeBeforeTodo()+fpTodoCard()};
+// Die Tagesliste erscheint ausschliesslich im Reiter Training.
+const fpTrainBeforeTodo=train;
+train=function(){
+  const html=fpTrainBeforeTodo();
+  if(!s.active&&['form','library','planner'].includes(s.view))return html;
+  const todo=fpTodoCard();
+  if(s.active)return html+todo;
+  const titleEnd=html.indexOf('</h1>');
+  return titleEnd>=0?html.slice(0,titleEnd+5)+todo+html.slice(titleEnd+5):todo+html;
+};
 document.addEventListener('submit',e=>{
   if(e.target.id!=='fpTodoForm')return;
   e.preventDefault();e.stopImmediatePropagation();fpTodoNewDay();
@@ -930,7 +938,7 @@ document.addEventListener('click',e=>{
   save();render();toast('Aufgabe gelöscht');
 },true);
 // Bei geoeffneter App auch ohne Seitenwechsel den Tageswechsel bemerken.
-setInterval(()=>{if(fpTodoNewDay()&&s.tab==='home')render()},60000);
-document.addEventListener('visibilitychange',()=>{if(!document.hidden&&fpTodoNewDay()&&s.tab==='home')render()});
+setInterval(()=>{if(fpTodoNewDay()&&s.tab==='train')render()},60000);
+document.addEventListener('visibilitychange',()=>{if(!document.hidden&&fpTodoNewDay()&&s.tab==='train')render()});
 
 })();
