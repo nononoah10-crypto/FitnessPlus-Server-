@@ -48,7 +48,7 @@ function records(){
 function bestleistungen(){const rs=records();return hdr('DEINE BESTLEISTUNGEN','Deine persönlichen Rekorde.')+`<button class="primary outline" data-action="showStrength">Kraftentwicklung über 8 Wochen →</button>`+
  `<div class="card"><b>Deine Stärke im Blick</b><p class="sub">Hier erscheinen die höchsten eingetragenen Gewichte und Wiederholungen deiner abgeschlossenen Trainings. Nur abgehakte Sätze zählen.</p></div>`+
  (rs.length?rs.map(x=>`<div class="card"><div class="row"><b>${safe(x.name)}</b><span class="sub">${x.sets} dokumentierte Sätze</span></div><div class="metrics" style="margin-top:12px"><div class="metric"><div class="sub">Höchstes Gewicht</div><div class="value">${x.weight.toLocaleString('de-DE')} <span class="sub">kg</span></div></div><div class="metric"><div class="sub">Meiste Wiederholungen</div><div class="value">${x.reps}</div></div></div><div class="sub" style="margin-top:12px">Zuletzt trainiert: ${safe(x.last)} · Höchstes Satzvolumen: ${x.volume.toLocaleString('de-DE')} kg</div></div>`).join(''):`<div class="card"><b>Noch keine Bestleistungen gespeichert</b><p class="sub">Starte ein Training mit Übungen, hake Sätze ab und schließe das Training ab. Deine Rekorde erscheinen dann hier.</p><button class="primary" data-tab="train">Workout starten</button></div>`)+
- `<button class="primary outline" data-action="backProgress">← Zu den Trainingsstatistiken</button><p class="sub" style="margin-top:15px">Wiederholungsrekord und Gewichtsrekord können aus unterschiedlichen Sätzen stammen. Rekorde sind keine medizinische Bewertung.</p>`}
+ `<button class="primary outline" data-action="backProgress">← Zur Wochenübersicht</button><p class="sub" style="margin-top:15px">Wiederholungsrekord und Gewichtsrekord können aus unterschiedlichen Sätzen stammen. Rekorde sind keine medizinische Bewertung.</p>`}
 function strengthHistory(){
  const recordsByExercise=new Map();
  for(const h of s.history){const d=String(h.day||'');if(!/^\d{4}-\d\d-\d\d$/.test(d))continue;
@@ -1408,6 +1408,13 @@ function fpStatsPanel(){
       </div>
       <p class="fpstats-comparison">${safe(fpStatsDelta(sum.minutes,before.minutes))}</p>
     </div>
+    <div class="card"><div class="row"><b>📊 Dein Verlauf</b><span class="sub">${safe(labels[metric])}</span></div>
+      <div class="fpstats-metrics" role="group" aria-label="Diagramm auswählen">${[['minutes','Minuten'],['workouts','Trainings'],['kcal','Kalorien']].map(([key,text])=>`<button type="button" class="fpstats-metric ${metric===key?'fpstats-selected':''}" data-fpstat-metric="${key}" aria-pressed="${metric===key}">${text}</button>`).join('')}</div>
+      <div class="fpstats-chart" role="img" aria-label="${safe(labels[metric])} für ${safe(range.caption)}: ${bars.map(b=>b.label+' '+b.value).join(', ')}">
+        ${bars.map(b=>`<div class="fpstats-column"><span class="fpstats-value">${b.value||''}</span><div class="fpstats-track"><div class="fpstats-fill" style="height:${b.value?Math.max(5,100*b.value/max):0}%"></div></div><span class="fpstats-label">${safe(b.label)}</span></div>`).join('')}
+      </div>
+      ${items.length?'':'<p class="sub" style="text-align:center">Hier erscheinen deine Trainings, sobald du welche abgeschlossen hast.</p>'}
+    </div>
     <p class="sub" style="margin:8px 2px 18px">Nur abgeschlossene, gespeicherte Trainings zählen. Kalorien sind Schätzwerte. Die Daten stammen aus deinem persönlichen Trainingsverlauf.</p>
   </section>`;
 }
@@ -1436,14 +1443,13 @@ function fpStatsStyles(){
 fpStatsStyles();
 const fpProgressBeforeExtendedStatistics=progress;
 progress=function(){
-  // Nur auf den Unterseiten werden die alten Ansichten noch gebraucht.
-  if(['records','strength','friends','levels'].includes(s.view)){
-    return fpProgressBeforeExtendedStatistics();
-  }
-  // Die Standard-Ansicht zeigt AUSSCHLIESSLICH die neuen Statistiken.
-  // Nicht den vorherigen HTML-Verlauf anhaengen: Er enthielt weiterhin
-  // die alte Wochenuebersicht und die doppelte Verlaufskarte.
-  return fpStatsPanel();
+  const original=fpProgressBeforeExtendedStatistics();
+  // Eigene Unterseiten (Freunde, Rekorde, Kraft) nicht ueberschreiben.
+  if(['records','strength','friends','levels'].includes(s.view))return original;
+  const panel=fpStatsPanel();
+  // Neues Dashboard nach der vorhandenen Titelzeile einsetzen.
+  const heading='<h1 class="title">Deine Trainingswochen.</h1>';
+  return original.includes(heading)?original.replace(heading,heading+panel):panel+original;
 };
 document.addEventListener('click',e=>{
   const button=e.target.closest('button');if(!button)return;
