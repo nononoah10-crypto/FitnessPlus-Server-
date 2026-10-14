@@ -410,7 +410,24 @@ async function handler(req,res){try{
    audit(u.id,'all','broadcast_gift_closed',id);
    return json(res,200,{ok:true});
   }
- if(req.method==='GET'&&url.pathname==='/api/admin/users')return json(res,200,{users:all('SELECT id,username AS name,diamonds,xp,role,1+CAST(xp/3 AS INTEGER) AS level FROM users ORDER BY username LIMIT 500')});
+ 
+ // Player details are deliberately read-only and remain behind the existing admin authorization.
+ if(req.method==='GET'&&url.pathname==='/api/admin/player'){
+  const id=String(url.searchParams.get('userId')||'');
+  if(!/^[a-f0-9-]{36}$/i.test(id))return error(res,400,'Ungültige Spieler-ID');
+  const player=q('SELECT id,username AS name,diamonds,xp,role,created_at AS createdAt,1+CAST(xp/3 AS INTEGER) AS level FROM users WHERE id=?',id);
+  if(!player)return error(res,404,'Spieler nicht gefunden');
+  const count=(sql,...params)=>q(sql,...params)?.n||0;
+  const creditedExercises=count('SELECT COUNT(*) AS n FROM game_exercises e JOIN game_runs r ON r.id=e.run_id WHERE r.user_id=?',id);
+  const rewardedTrainings=count('SELECT COUNT(DISTINCT e.run_id) AS n FROM game_exercises e JOIN game_runs r ON r.id=e.run_id WHERE r.user_id=?',id);
+  const openedChests=count('SELECT COUNT(*) AS n FROM game_chests WHERE user_id=? AND opened_at IS NOT NULL',id);
+  const unopenedChests=count('SELECT COUNT(*) AS n FROM game_chests WHERE user_id=? AND opened_at IS NULL',id);
+  const friends=count('SELECT COUNT(*) AS n FROM friendship WHERE a=? OR b=?',id,id);
+  const purchases=count('SELECT COUNT(*) AS n FROM game_purchases WHERE user_id=?',id);
+  const lastExercise=q('SELECT MAX(e.awarded_at) AS at FROM game_exercises e JOIN game_runs r ON r.id=e.run_id WHERE r.user_id=?',id)?.at||null;
+  return json(res,200,{player:{...player,creditedExercises,rewardedTrainings,openedChests,unopenedChests,friends,purchases,lastExercise}});
+ }
+if(req.method==='GET'&&url.pathname==='/api/admin/users')return json(res,200,{total:q('SELECT COUNT(*) AS n FROM users').n,users:all('SELECT id,username AS name,diamonds,xp,role,created_at AS createdAt,1+CAST(xp/3 AS INTEGER) AS level FROM users ORDER BY username LIMIT 500')});
  if(req.method==='POST'&&url.pathname==='/api/admin/diamonds'){
   const v=Number(data.amount),target=q('SELECT * FROM users WHERE id=?',String(data.userId||''));if(!target||!Number.isSafeInteger(v)||v<1||v>100000)return error(res,400,'Ungültiger Empfänger/Betrag');
   run('UPDATE users SET diamonds=diamonds+? WHERE id=?',v,target.id);run('INSERT INTO gifts VALUES(?,?,?,?,?)',uid(),u.id,target.id,v,Date.now());audit(u.id,target.id,'diamonds',v);return json(res,200,{ok:true})
