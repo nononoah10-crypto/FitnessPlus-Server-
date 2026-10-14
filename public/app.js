@@ -808,4 +808,29 @@ window.addEventListener('click',async e=>{
 },true);
 })();
 
+
+// FitnessPlus update: hide rest timer and show active booster at bottom.
+const fpUpdateTrain=train;
+train=function(){
+  const html=fpUpdateTrain();
+  if(!s.active)return html;
+  // Remove only the pause card, leaving the reward card untouched.
+  const start=html.indexOf('<div class="card"><div class="row"><b>Pausentimer</b>');
+  const end=html.indexOf('<div class="card" id="rewardTimeGate">',start);
+  return start>=0&&end>start?html.slice(0,start)+html.slice(end):html;
+};
+function fpBoosterBanner(){
+  let bar=document.getElementById('fpActiveBoosterBanner');
+  const count=Math.max(0,Number(s.levelBoostUses)||0);
+  if(!count){if(bar)bar.remove();return}
+  if(!bar){bar=document.createElement('div');bar.id='fpActiveBoosterBanner';bar.setAttribute('role','status');document.body.appendChild(bar)}
+  const multiplier=Number(s.levelBoostMultiplier)===3?3:2;
+  bar.textContent='⚡ '+multiplier+'× Level-Booster aktiv · Noch '+count+' '+(count===1?'Übung':'Übungen');
+  Object.assign(bar.style,{position:'fixed',left:'12px',right:'12px',bottom:'76px',zIndex:'1000',padding:'12px 15px',borderRadius:'14px',background:'#192d48',color:'#fff',fontSize:'14px',fontWeight:'700',textAlign:'center',boxShadow:'0 4px 18px rgba(0,0,0,.22)',pointerEvents:'none'});
+}
+const fpRenderWithBanner=render;
+render=function(){fpRenderWithBanner();fpBoosterBanner()};
+// Keep the banner in sync when cloud data changes without an immediate render.
+setInterval(fpBoosterBanner,1000);
+
 })();
