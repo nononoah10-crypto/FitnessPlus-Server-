@@ -1,9 +1,21 @@
 (()=>{'use strict';
-const KEY='fitnessplus-v3';const OLD='fitnessplus-web-v2';const presets=[{id:'p0',name:'Ganzkörper Workout',type:'Kraft',min:30,kcal:230},{id:'p1',name:'Laufen',type:'Ausdauer',min:25,kcal:260},{id:'p2',name:'Yoga & Mobility',type:'Beweglichkeit',min:20,kcal:90},{id:'p3',name:'HIIT Power',type:'Intervall',min:15,kcal:180},{id:'p4',name:'Spaziergang',type:'Bewegung',min:30,kcal:110}];
+const KEY='fitnessplus-v3';const OLD='fitnessplus-web-v2';const ACTIVE_TRAINING_KEY='fitnessplus-active-training-v1';const ONLINE_RUN_KEY='fitnessplus-online-run-v1';window.FP76SessionReady=false;const presets=[{id:'p0',name:'Ganzkörper Workout',type:'Kraft',min:30,kcal:230},{id:'p1',name:'Laufen',type:'Ausdauer',min:25,kcal:260},{id:'p2',name:'Yoga & Mobility',type:'Beweglichkeit',min:20,kcal:90},{id:'p3',name:'HIIT Power',type:'Intervall',min:15,kcal:180},{id:'p4',name:'Spaziergang',type:'Bewegung',min:30,kcal:110}];
 const base={tab:'home',goalMinutes:45,goalCalories:400,goalSteps:8000,steps:{},history:[],workouts:[],plans:[],reminders:[],active:null,view:'',edit:null,calMonth:'',selectedDay:'',draftExercises:[],weekType:'minutes',weekOffset:0,theme:'light',water:{},waterGoal:2000,libraryFilter:'Alle',restUntil:0,trainingSets:{},librarySearch:'',profile:{nickname:'',focus:'allround',days:3},strengthExercise:'',strengthWeeks:8};
 const safe=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));const $=x=>document.querySelector(x);const uid=()=>`${Date.now()}-${Math.random().toString(36).slice(2,8)}`;const dkey=(d=new Date())=>[d.getFullYear(),String(d.getMonth()+1).padStart(2,'0'),String(d.getDate()).padStart(2,'0')].join('-');const day=()=>dkey();
 let s={...base};try{let old=JSON.parse(localStorage.getItem(KEY)||'null');if(old){s={...s,...old,active:null,view:'',edit:null,draftExercises:[]}}else{old=JSON.parse(localStorage.getItem(OLD)||'null');if(old){s.goalMinutes=+old.goalMinutes||45;s.goalCalories=+old.goalCalories||400;s.workouts=(old.customWorkouts||[]).map((x,i)=>({id:String(x.id||uid()),name:x.name||'Eigenes Training',type:x.type||x.category||'Eigenes',min:Number(x.min)||30,kcal:Number(x.kcal)||180,exercises:[]}));s.history=(old.history||[]).map(x=>({id:uid(),workoutId:typeof x.id==='number'?`p${x.id}`:String(x.id||x.workoutId||''),name:typeof x.id==='number'?presets[x.id]?.name||'Workout':x.name||'Workout',day:x.day||day(),min:+x.min||0,kcal:+x.kcal||0,exercises:[]}));}}}catch(e){}
 s.profile=s.profile&&typeof s.profile==='object'?{nickname:String(s.profile.nickname||''),focus:String(s.profile.focus||'allround'),days:Number(s.profile.days)||3}:{nickname:'',focus:'allround',days:3};s.history=Array.isArray(s.history)?s.history:[];s.workouts=Array.isArray(s.workouts)?s.workouts:[];s.plans=Array.isArray(s.plans)?s.plans:[];s.reminders=Array.isArray(s.reminders)?s.reminders:[];s.steps=s.steps&&typeof s.steps==='object'?s.steps:{};s.water=s.water&&typeof s.water==='object'?s.water:{};s.theme=s.theme==='dark'?'dark':'light';s.trainingSets=s.trainingSets&&typeof s.trainingSets==='object'?s.trainingSets:{};s.calMonth=new Date().toISOString().slice(0,7);s.selectedDay=day();
+// Ein laufendes Training bleibt auch beim Neuladen oder nach einem App-Wechsel erhalten.
+// Der Zeitstempel sorgt dafuer, dass der Timer nach dem Zurueckkehren korrekt weiterzaehlt.
+try{
+ const saved=JSON.parse(localStorage.getItem(ACTIVE_TRAINING_KEY)||'null');
+ const a=saved?.active, started=Number(a?.started);
+ if(a&&typeof a.id==='string'&&a.id.length<100&&Number.isFinite(started)&&started>0&&started<=Date.now()&&Date.now()-started<=4*3600000){
+  s.active={id:a.id,started,done:Array.isArray(a.done)?a.done:[],goalReached:!!a.goalReached,stoppedAt:Number(a.stoppedAt)||0};
+  s.trainingSets=saved.trainingSets&&typeof saved.trainingSets==='object'&&!Array.isArray(saved.trainingSets)?saved.trainingSets:s.trainingSets;
+  s.restUntil=Number(saved.restUntil)||0;
+  s.tab='train';s.view='';
+ }else if(saved){localStorage.removeItem(ACTIVE_TRAINING_KEY);localStorage.removeItem(ONLINE_RUN_KEY)}
+}catch(_){try{localStorage.removeItem(ACTIVE_TRAINING_KEY)}catch(__){}}
 function save(){try{localStorage.setItem(KEY,JSON.stringify({...s,active:null,view:'',edit:null,draftExercises:[]}));window.FitnessPlusCloudSaved?.()}catch(e){toast('Speichern in diesem Browser nicht möglich.')}}function toast(v){let t=$('#toast');t.textContent=v;t.style.display='block';clearTimeout(toast.timeout);toast.timeout=setTimeout(()=>t.style.display='none',2600)}function render(){document.documentElement.dataset.theme=s.theme;document.querySelectorAll('.tab').forEach(x=>x.classList.toggle('active',x.dataset.tab===s.tab));$('#page').innerHTML=s.tab==='home'?home():s.tab==='train'?train():s.tab==='calendar'?calendar():s.tab==='progress'?progress():settings();timerTick()}
 function hdr(sub,title){return `<div class="eyebrow">${sub}</div><h1 class="title">${title}</h1>`}function all(){return [...presets,...s.workouts]}function find(id){return all().find(x=>String(x.id)===String(id))}function totals(k=day()){return s.history.filter(x=>x.day===k).reduce((a,x)=>({min:a.min+(+x.min||0),kcal:a.kcal+(+x.kcal||0)}),{min:0,kcal:0})}function ring(value,max,r,color){let c=2*Math.PI*r;return `<circle cx="100" cy="100" r="${r}" fill="none" stroke="#f0f0f4" stroke-width="15"/><circle cx="100" cy="100" r="${r}" fill="none" stroke="${color}" stroke-width="15" stroke-linecap="round" stroke-dasharray="${c}" stroke-dashoffset="${c*(1-Math.min(value/Math.max(1,max),1))}"/>`}function workoutRow(x){let n=x.exercises?.length||0;return `<div class="item"><div class="symbol">${x.id.startsWith('p')?'✦':'▣'}</div><div class="grow"><div class="itemname">${safe(x.name)}</div><div class="sub">${safe(x.type||'Workout')} · ${x.min} Min ${n?'· '+n+' Übungen':''}</div></div><button class="btn" data-start="${safe(x.id)}">Start</button>${!x.id.startsWith('p')?`<button class="btn" data-edit="${safe(x.id)}">✎</button>`:''}</div>`}
 function home(){let t=totals(),dt=new Date().toLocaleDateString('de-DE',{weekday:'long',day:'numeric',month:'long'});return hdr(dt,'Dein Tag. Dein Tempo.')+`<div class="card"><div class="row"><b>Deine Aktivität</b><span class="sub">Heute</span></div><div class="rings"><svg viewBox="0 0 200 200">${ring(t.kcal,s.goalCalories,81,'#ff5673')}${ring(t.min,s.goalMinutes,60,'#8585fb')}</svg><div class="middle"><span class="huge">${t.min}</span><span class="sub">Trainingsminuten</span></div></div><div class="metrics"><div class="metric"><b style="color:#fa5975;font-size:12px">● Energie</b><div class="value">${t.kcal} <span class="sub">kcal</span></div><div class="sub">Ziel ${s.goalCalories}</div></div><div class="metric"><b style="color:#8585fb;font-size:12px">● Bewegung</b><div class="value">${t.min} <span class="sub">Min</span></div><div class="sub">Ziel ${s.goalMinutes}</div></div></div></div><div class="card"><div class="row"><div><b>Wasser heute</b><div class="sub">${Number(s.water[day()]||0)} / ${s.waterGoal} ml</div></div><button class="btn" data-action="waterAdd">+ 250 ml</button></div><div class="progressTrack"><div class="progressFill" style="width:${Math.min(100,100*Number(s.water[day()]||0)/s.waterGoal)}%;background:#55a9e8"></div></div><button class="btn" data-tab="settings" style="margin-top:10px">Trinkziel bearbeiten</button></div><div class="card"><div class="row"><div><b>Dein Trainingsplan</b><div class="sub">Erstelle deinen persönlichen Wochenplan</div></div><button class="btn" data-action="openPlanner">Plan erstellen</button></div></div><div class="row"><h2 class="section">Dein nächstes Training</h2><button class="btn" data-tab="train">Alle →</button></div><div class="card">${workoutRow(s.workouts[0]||presets[0])}</div><div class="card"><div class="row"><b>Geplante Trainings</b><button class="btn" data-tab="calendar">Kalender →</button></div><div class="sub" style="margin-top:8px">${s.plans.filter(p=>p.day>=day()).length} anstehende Termine</div></div>`}
@@ -71,7 +83,7 @@ function libraryView(){let groups=['Alle','Beine','Brust','Rücken','Schultern',
 function plannerView(){return hdr('TRAINING NACH PLAN','Deine Trainingswoche.')+`<button class="btn" data-action="backTrain">← Zurück</button><div class="card" style="margin-top:15px"><p class="sub">FitnessPlus legt passende Workouts für die kommenden sieben Tage an. Du kannst Termine danach im Kalender verändern oder löschen.</p><form id="generatorForm"><label class="field">Dein Fitnessziel</label><select class="input" name="goal"><option value="strength">Kraft aufbauen</option><option value="endurance">Ausdauer verbessern</option><option value="balanced">Allgemein fit bleiben</option></select><label class="field">Trainingstage pro Woche</label><select class="input" name="count"><option>2</option><option selected>3</option><option>4</option><option>5</option></select><label class="field">Bevorzugte Dauer</label><select class="input" name="duration"><option value="20">20 Minuten</option><option value="30" selected>30 Minuten</option><option value="45">45 Minuten</option><option value="60">60 Minuten</option></select><button class="primary" type="submit">7-Tage-Plan erstellen</button></form></div><div class="note">Der Wochenplan ist ein allgemeiner Vorschlag, keine medizinische oder individuelle Trainingsberatung.</div>`}
 function generatePlan(f){let d=new FormData(f),goal=String(d.get('goal')),count=Number(d.get('count')),duration=Number(d.get('duration'));let ids=goal==='strength'?['p0','p2','p0','p2','p0']:goal==='endurance'?['p1','p4','p1','p4','p1']:['p0','p1','p2','p0','p4'];let offsets=count===2?[1,4]:count===3?[0,2,5]:count===4?[0,2,4,6]:[0,1,3,4,6];for(let i=0;i<count;i++){let date=new Date();date.setHours(12,0,0,0);date.setDate(date.getDate()+offsets[i]);let w=find(ids[i]);s.plans.push({id:uid(),workoutId:w.id,name:w.name,day:dkey(date),duration})}save();s.tab='calendar';s.view='';render();toast(count+' Trainings geplant')}
 
-function timerTick(){let rest=$('#restClock');if(rest){let seconds=Math.ceil((s.restUntil-Date.now())/1000);rest.textContent=seconds>0?Math.floor(seconds/60)+':'+String(seconds%60).padStart(2,'0'):'bereit'}const el=$('#timer');if(el&&s.active){let info=rewardTimeInfo();if(!s.active.goalReached&&info.actualElapsed>=info.required){handleGoalReached();info=rewardTimeInfo()}let sec=Math.max(0,Math.floor((info.elapsed)/1000));el.textContent=String(Math.floor(sec/60)).padStart(2,'0')+':'+String(sec%60).padStart(2,'0')}}
+function timerTick(){let rest=$('#restClock');if(rest){let seconds=Math.ceil((s.restUntil-Date.now())/1000);rest.textContent=seconds>0?Math.floor(seconds/60)+':'+String(seconds%60).padStart(2,'0'):'bereit'}const el=$('#timer');if(el&&s.active){let info=rewardTimeInfo();if(!s.active.goalReached&&info.actualElapsed>=info.required&&window.FP76SessionReady!==false){handleGoalReached();info=rewardTimeInfo()}let sec=Math.max(0,Math.floor((info.elapsed)/1000));el.textContent=String(Math.floor(sec/60)).padStart(2,'0')+':'+String(sec%60).padStart(2,'0')}}
 function addExercise(){let name=prompt('Name der Übung (z. B. Kniebeugen)');if(!name||!name.trim())return;let sets=prompt('Anzahl der Sätze','3'),reps=prompt('Wiederholungen pro Satz','10'),weight=prompt('Gewicht in kg (0 ohne Gewicht)','0');if([sets,reps,weight].some(x=>x===null))return;let nums=[Number(sets),Number(reps),Number(weight)];if(!nums.every(Number.isFinite)||nums[0]<1||nums[0]>100||nums[1]<1||nums[1]>1000||nums[2]<0||nums[2]>1000){toast('Bitte gültige Zahlen eingeben.');return}s.draftExercises.push({id:uid(),name:name.trim().slice(0,80),sets:nums[0],reps:nums[1],weight:nums[2]});render()}
 function openForm(id=null){s.tab='train';s.view='form';s.edit=id;s.draftExercises=(find(id)?.exercises||[]).map(x=>({...x}));render()}
 function saveForm(f){let data=new FormData(f),name=String(data.get('name')||'').trim(),min=Number(data.get('min')),kcal=Number(data.get('kcal'));if(!name||!Number.isFinite(min)||min<1||min>600||!Number.isFinite(kcal)||kcal<0||kcal>2500){toast('Bitte Angaben prüfen.');return}let x={id:s.edit||uid(),name:name.slice(0,70),type:String(data.get('type')),min,kcal,exercises:s.draftExercises};if(s.edit){s.workouts=s.workouts.map(w=>String(w.id)===String(s.edit)?x:w)}else{s.workouts.push(x)}s.view='';s.edit=null;s.draftExercises=[];save();render();toast('Training gespeichert')}
@@ -734,7 +746,15 @@ let revision=0, loggedIn=false, busy=false, queued=false, conflict=false, lastSe
 const setStatus=t=>{};
 const api=async(method,url,data)=>{let r=await fetch(url,{method,credentials:'same-origin',headers:data?{'Content-Type':'application/json'}:{},body:data?JSON.stringify(data):undefined});let x=await r.json();if(!r.ok)throw Object.assign(Error(x.error||'Serverfehler'),{status:r.status});return x};
 const clean=()=>{let x={...s};for(let k of ['active','view','edit','draftExercises','tab','calMonth','selectedDay','weekOffset','libraryFilter','restUntil'])delete x[k];return x};
-const merge=(remote,user)=>{let ui={tab:s.tab,theme:s.theme,active:null,view:'',edit:null,draftExercises:[]};s={...s,...remote,...ui,diamonds:user.diamonds,levelExercises:user.xp};try{localStorage.setItem(KEY,JSON.stringify(s))}catch{}render()};
+const merge=(remote,user)=>{
+ // Cloud-Spielstand darf ein lokal laufendes Workout samt Timer/Saetzen nicht loeschen.
+ const live=s.active;
+ let ui={tab:live?'train':s.tab,theme:s.theme,active:live,trainingSets:s.trainingSets,restUntil:s.restUntil,view:live?'':s.view,edit:null,draftExercises:[]};
+ s={...s,...remote,...ui,diamonds:user.diamonds,levelExercises:user.xp};
+ // Nicht die kurzlebige aktive Session in den normalen Cloud-Spielstand mischen.
+ try{localStorage.setItem(KEY,JSON.stringify({...s,active:null}))}catch{}
+ render();
+};
 async function init(){if(busy)return;busy=true;try{
  const x=await api('GET','/api/state');loggedIn=true;revision=x.revision;
  if(x.state){let local=clean();let hasLocal=(local.history||[]).length||(local.workouts||[]).length||(local.diamonds||0)||(local.levelExercises||0);
@@ -748,8 +768,8 @@ async function init(){if(busy)return;busy=true;try{
   // Do not grant self-reported historic diamonds or XP in the cloud.
   s.diamonds=x.user.diamonds;s.levelExercises=x.user.xp;await upload();
  }
- ready=true;window.FP76Online=true;window.FP76Refresh?.();conflict=false;setStatus('☁️ Synchronisiert');
- }catch(e){if(e.status===401){loggedIn=false;ready=false;window.FP76Online=false;setStatus('☁️ Anmelden')}else setStatus('☁️ Verbindungsfehler')}finally{busy=false}}
+ ready=true;window.FP76Online=true;window.FP76Refresh?.();window.FP76EnsureRun?.();conflict=false;setStatus('☁️ Synchronisiert');
+ }catch(e){if(e.status===401){loggedIn=false;ready=false;window.FP76Online=false;setStatus('☁️ Anmelden')}else setStatus('☁️ Verbindungsfehler')}finally{busy=false;window.FP76SessionReady=true;if(s.active)timerTick()}}
 async function upload(){if(!loggedIn||!ready&&revision!==0)return;
  const state=clean(),str=JSON.stringify(state);if(lastSent===str&&!queued)return;
  try{let r=await api('PUT','/api/state',{revision,state});revision=r.revision;lastSent=str;setStatus('☁️ Synchronisiert');}
@@ -764,20 +784,42 @@ setTimeout(init,750);setInterval(()=>{if(!queued&&!busy)init()},45000);
 // FitnessPlus v7.6 — cloud economy and training rewards.
 (()=>{'use strict';
 let runId='',pending=new Set(),starting=null;
+try{
+ const cached=JSON.parse(localStorage.getItem(ONLINE_RUN_KEY)||'null');
+ if(s.active&&cached&&cached.started===s.active.started&&typeof cached.runId==='string')runId=cached.runId;
+}catch(_){}
+
 const req=async (url,data)=>{let r=await fetch(url,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(data||{})});let x=await r.json();if(!r.ok)throw Error(x.error||'Server nicht erreichbar');return x};
 const status=async()=>{try{let r=await fetch('/api/game',{credentials:'same-origin',cache:'no-store'});if(!r.ok)return;let x=await r.json();s.diamonds=x.user.diamonds;s.levelExercises=x.user.xp;s.levelBoostMultiplier=x.booster.multiplier;s.levelBoostUses=x.booster.uses;s.rewardBoxes=x.chests.map(t=>({id:t.id,name:'Online-Truhe'}));render()}catch{}};
 window.FP76Refresh=status;
 window.addEventListener('focus',()=>{if(window.FP76Online)status()});
-window.FP76Start=()=>{if(!window.FP76Online)return;runId='';starting=req('/api/game/start').then(x=>runId=x.runId).catch(e=>toast('Online-Training nicht gestartet: '+e.message))};
+window.FP76EnsureRun=()=>{
+ if(!window.FP76Online||!s.active||runId||starting)return;
+ const started=s.active.started;
+ starting=req('/api/game/start').then(x=>{
+  if(!s.active||s.active.started!==started)return;
+  runId=x.runId;
+  try{localStorage.setItem(ONLINE_RUN_KEY,JSON.stringify({runId,started}))}catch(_){}
+ }).catch(e=>toast('Online-Training nicht gestartet: '+e.message)).finally(()=>{starting=null});
+};
+window.FP76Start=()=>{
+ if(!window.FP76Online)return;
+ runId='';try{localStorage.removeItem(ONLINE_RUN_KEY)}catch(_){}
+ starting=req('/api/game/start').then(x=>{
+  runId=x.runId;
+  // Start-Klick legt s.active unmittelbar nach FP76Start an.
+  try{if(s.active&&runId)localStorage.setItem(ONLINE_RUN_KEY,JSON.stringify({runId,started:s.active.started}))}catch(_){}
+ }).catch(e=>toast('Online-Training nicht gestartet: '+e.message));
+};
 window.FP76Exercise=async claim=>{
  if(!window.FP76Online||s.levelExerciseClaims[claim]||pending.has(claim))return;
  const ix=Number(String(claim).split(':').pop());if(!Number.isInteger(ix))return;
  pending.add(claim);
- try{if(starting)await starting;if(!runId)throw Error('Starte das Training bei bestehender Verbindung neu');
+ try{if(!runId&&!starting)window.FP76EnsureRun();if(starting)await starting;if(!runId)throw Error('Starte das Training bei bestehender Verbindung neu');
   const x=await req('/api/game/exercise',{runId,exerciseIndex:ix});
   s.levelExerciseClaims[claim]=true;s.levelExercises=x.user.xp;
   s.rewardBoxes.push({id:x.chestId,name:'Online-Truhe'});
-  await status();save();render();toast('✅ +'+x.xpGain+' XP und eine Online-Truhe! Booster-Zähler aktualisiert.');return true;
+  await status();save();render();showEarnedBox({id:x.chestId,name:'Online-Truhe'});toast('✅ +'+x.xpGain+' XP und eine Online-Truhe!');return true;
  }catch(e){toast(e.message);return false}finally{pending.delete(claim)}
 };
 const openCloudChest=async id=>{
@@ -820,26 +862,20 @@ train=function(){
   const end=html.indexOf('<div class="card" id="rewardTimeGate">',start);
   return start>=0&&end>start?html.slice(0,start)+html.slice(end):html;
 };
-function fpBoosterBanner(){
-  let bar=document.getElementById('fpActiveBoosterBanner');
-  const count=Math.max(0,Number(s.levelBoostUses)||0);
-  if(!count){if(bar)bar.remove();return}
-  if(!bar){bar=document.createElement('div');bar.id='fpActiveBoosterBanner';bar.setAttribute('role','status');document.body.appendChild(bar)}
-  const multiplier=Number(s.levelBoostMultiplier)===3?3:2;
-  bar.textContent='⚡ '+multiplier+'× Booster · '+count+' '+(count===1?'Übung':'Übungen')+' übrig';
-  Object.assign(bar.style,{position:'fixed',left:'48px',right:'48px',bottom:'calc(100px + env(safe-area-inset-bottom, 0px))',zIndex:'1000',padding:'7px 10px',borderRadius:'10px',background:'#192d48',color:'#fff',fontSize:'12px',fontWeight:'650',textAlign:'center',boxShadow:'0 4px 18px rgba(0,0,0,.22)',pointerEvents:'none'});
-}
-const fpRenderWithBanner=render;
-render=function(){fpRenderWithBanner();fpBoosterBanner()};
-// Keep the banner in sync when cloud data changes without an immediate render.
-setInterval(fpBoosterBanner,1000);
+// Use the existing online booster indicator; no second floating banner.
+// Remove any stale legacy badge on the next render.
+const fpRenderWithoutDuplicateBooster=render;
+render=function(){fpRenderWithoutDuplicateBooster();document.getElementById('fpActiveBoosterBanner')?.remove()};
 
 // Automatic workout completion once the configured duration is reached.
   let finishingStart = null;
+  let finishingRetryAt = 0;
   const originalTick = timerTick;
   timerTick = function() {
     originalTick();
-    if (!s.active) { finishingStart = null; return; }
+    if (window.FP76SessionReady===false) return;
+    if (!s.active) { finishingStart = null; finishingRetryAt = 0; return; }
+    if(Date.now()<finishingRetryAt)return;
     const active = s.active;
     const started = Number(active.started) || 0;
     if (!started || finishingStart === started) return;
@@ -858,13 +894,13 @@ setInterval(fpBoosterBanner,1000);
         const claim = prefix + '0';
         if (window.FP76Online) {
           if (typeof window.FP76Exercise !== 'function') {
-            finishingStart = null;
+            finishingStart = null; finishingRetryAt=Date.now()+6000;
             toast('Server nicht bereit. Bitte Training erneut abschließen.');
             return;
           }
           const awarded = await window.FP76Exercise(claim);
           if (!awarded) {
-            finishingStart = null;
+            finishingStart = null; finishingRetryAt=Date.now()+6000;
             toast('Punkte konnten nicht gespeichert werden. Bitte Verbindung prüfen.');
             return;
           }
@@ -983,5 +1019,20 @@ progress=function(){
 // Bei geoeffneter App auch ohne Seitenwechsel den Tageswechsel bemerken.
 setInterval(()=>{if(fpTodoNewDay()&&s.tab==='train')render()},60000);
 document.addEventListener('visibilitychange',()=>{if(!document.hidden&&fpTodoNewDay()&&s.tab==='train')render()});
+
+// Localer Trainings-Checkpoint bei jedem Bildschirmwechsel bzw. jedem Satz-Haekchen.
+const fpRenderBeforeTrainingCheckpoint=render;
+render=function(){
+ const result=fpRenderBeforeTrainingCheckpoint();
+ try{
+  if(s.active){
+   localStorage.setItem(ACTIVE_TRAINING_KEY,JSON.stringify({active:s.active,trainingSets:s.trainingSets,restUntil:s.restUntil}));
+  }else{
+   localStorage.removeItem(ACTIVE_TRAINING_KEY);
+   localStorage.removeItem(ONLINE_RUN_KEY);
+  }
+ }catch(_){}
+ return result;
+};
 
 })();
