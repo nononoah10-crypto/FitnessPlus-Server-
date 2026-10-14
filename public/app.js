@@ -1408,13 +1408,6 @@ function fpStatsPanel(){
       </div>
       <p class="fpstats-comparison">${safe(fpStatsDelta(sum.minutes,before.minutes))}</p>
     </div>
-    <div class="card"><div class="row"><b>📊 Dein Verlauf</b><span class="sub">${safe(labels[metric])}</span></div>
-      <div class="fpstats-metrics" role="group" aria-label="Diagramm auswählen">${[['minutes','Minuten'],['workouts','Trainings'],['kcal','Kalorien']].map(([key,text])=>`<button type="button" class="fpstats-metric ${metric===key?'fpstats-selected':''}" data-fpstat-metric="${key}" aria-pressed="${metric===key}">${text}</button>`).join('')}</div>
-      <div class="fpstats-chart" role="img" aria-label="${safe(labels[metric])} für ${safe(range.caption)}: ${bars.map(b=>b.label+' '+b.value).join(', ')}">
-        ${bars.map(b=>`<div class="fpstats-column"><span class="fpstats-value">${b.value||''}</span><div class="fpstats-track"><div class="fpstats-fill" style="height:${b.value?Math.max(5,100*b.value/max):0}%"></div></div><span class="fpstats-label">${safe(b.label)}</span></div>`).join('')}
-      </div>
-      ${items.length?'':'<p class="sub" style="text-align:center">Hier erscheinen deine Trainings, sobald du welche abgeschlossen hast.</p>'}
-    </div>
     <p class="sub" style="margin:8px 2px 18px">Nur abgeschlossene, gespeicherte Trainings zählen. Kalorien sind Schätzwerte. Die Daten stammen aus deinem persönlichen Trainingsverlauf.</p>
   </section>`;
 }
