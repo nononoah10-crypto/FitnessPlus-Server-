@@ -44,7 +44,50 @@
 .wheelAdminTools{display:flex;gap:8px;flex-wrap:wrap}.wheelAdminTools button{flex:1 1 150px}
 .wheelAdminNotice{font-size:12px;color:#627c74;line-height:1.5;margin:10px 0 0}
 @media(max-width:370px){.wheelAdminRow{grid-template-columns:1fr 1fr 40px}}
-</style></head><body><main><div class="hero"><img src="/icons/icon-192.png" alt="FitnessPlus Logo"><h1>FitnessPlus</h1><p>Dein Training. Dein Fortschritt.</p></div><div id="status" class="status">Verbindung wird geprüft …</div><section id="login" class="card hide"><h2>Mit Face ID anmelden</h2><p>Melde dich sicher mit deinem gespeicherten Passkey an.</p><button id="face-login" onclick="faceLogin()">Mit Face ID anmelden</button></section><div id="panel" class="hide"><section class="card"><strong id="who">Privates Admin-Gerät</strong></section><section class="card" id="playerCenter"><div class="eyebrow">FUNKTION 3 VON 7</div>
+
+/* FitnessPlus Admin 7/7: live server statistics, optimized for mobile */
+.statsHead{display:flex;justify-content:space-between;align-items:start;gap:10px}
+.statsHead h2{margin:0 0 8px}.statsLive{color:#056d4a;background:#def7e8;border-radius:99px;padding:7px 10px;font-size:11px;font-weight:800;white-space:nowrap}
+.statsIntro{font-size:13px;line-height:1.55;color:#657e76;margin:0 0 14px}
+.statsGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
+.statsMetric{border:1px solid #dcece5;border-radius:15px;background:#f6fbf8;padding:12px 10px;min-width:0}
+.statsMetric .statsIcon{font-size:19px}.statsMetric strong{display:block;color:#0b7360;font-size:26px;line-height:1.35;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.statsMetric small{font-size:11px;line-height:1.4;display:block}
+.statsMetric.primary{background:#e2f6eb;border-color:#bfe5d1}.statsSection{font-size:15px;margin:22px 0 10px}
+.statsFilters{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 12px}.statsFilters button{width:auto;flex:1;white-space:nowrap;padding:9px 6px;font-size:12px;background:#e8f0eb;color:#326154;margin:0}
+.statsFilters button.selected{background:#087a67;color:white}
+.statsChart{display:flex;gap:7px;height:175px;align-items:end;padding:14px 5px 4px;background:#f7fbf8;border:1px solid #e3f0e8;border-radius:15px;overflow:hidden}
+.statsColumn{flex:1;min-width:0;height:100%;display:flex;align-items:center;flex-direction:column;justify-content:flex-end;gap:4px}
+.statsCount{font-size:11px;color:#325c4f;font-weight:800;font-variant-numeric:tabular-nums}
+.statsBarBox{width:100%;flex:1;display:flex;align-items:end;justify-content:center;min-height:0}
+.statsBar{width:65%;max-width:29px;min-width:7px;border-radius:6px 6px 0 0;background:linear-gradient(180deg,#41c797,#078669);transition:height .25s}
+.statsDay{font-size:10px;color:#60796f;white-space:nowrap}
+.statsFeed{display:grid;gap:8px}.statsFeedRow{display:flex;gap:10px;align-items:center;border:1px solid #e1ece6;border-radius:12px;padding:9px;background:#f9fcfa}
+.statsFeedIcon{width:33px;flex:0 0 33px;height:33px;display:grid;place-items:center;background:#e4f7ec;border-radius:11px;font-size:18px}
+.statsFeedText{min-width:0;flex:1}.statsFeedText b{display:block;font-size:12px;overflow-wrap:anywhere}.statsFeedText small{display:block;font-size:11px}
+.statsTime{font-size:10px;color:#60796f;white-space:nowrap}.statsNote{font-size:11px;line-height:1.6;color:#657e76;margin:10px 0 0}.statsStamp{margin-top:6px;text-align:center}
+@media(max-width:350px){.statsMetric strong{font-size:23px}.statsFilters button{font-size:11px}.statsDay{font-size:9px}.statsTime{display:none}}
+</style></head><body><main><div class="hero"><img src="/icons/icon-192.png" alt="FitnessPlus Logo"><h1>FitnessPlus</h1><p>Dein Training. Dein Fortschritt.</p></div><div id="status" class="status">Verbindung wird geprüft …</div><section id="login" class="card hide"><h2>Mit Face ID anmelden</h2><p>Melde dich sicher mit deinem gespeicherten Passkey an.</p><button id="face-login" onclick="faceLogin()">Mit Face ID anmelden</button></section><div id="panel" class="hide"><section class="card"><strong id="who">Privates Admin-Gerät</strong></section>
+<section class="card" id="liveStats" aria-labelledby="liveStatsTitle">
+ <div class="eyebrow">FUNKTION 7 VON 7</div>
+ <div class="statsHead"><h2 id="liveStatsTitle">📊 Live-Statistiken</h2><span class="statsLive" id="statsLiveStatus" role="status">● Lade Daten</span></div>
+ <p class="statsIntro">Die wichtigsten Zahlen deiner FitnessPlus-Spieler. Die Ansicht aktualisiert sich automatisch alle 30 Sekunden.</p>
+ <div id="statsMetrics" class="statsGrid" aria-live="polite"><div class="statsMetric"><small>Zahlen werden geladen …</small></div></div>
+ <h3 class="statsSection">📈 Verlauf der letzten 7 Tage</h3>
+ <div class="statsFilters" aria-label="Diagramm auswählen">
+  <button class="selected" type="button" data-stats-chart="exercises" aria-pressed="true">Übungen</button>
+  <button type="button" data-stats-chart="workouts" aria-pressed="false">Trainings</button>
+  <button type="button" data-stats-chart="newPlayers" aria-pressed="false">Neue Spieler</button>
+  <button type="button" data-stats-chart="spins" aria-pressed="false">Glücksrad</button>
+ </div>
+ <div id="statsChart" class="statsChart" role="img" aria-label="Verlauf wird geladen"></div>
+ <h3 class="statsSection">🕒 Letzte Spieleraktionen</h3>
+ <div id="statsFeed" class="statsFeed" aria-live="polite"><small>Aktivitäten werden geladen …</small></div>
+ <button type="button" id="statsRefresh" class="alt" style="margin-top:14px">↻ Live-Zahlen aktualisieren</button>
+ <p class="statsNote statsStamp" id="statsTimestamp">Noch nicht aktualisiert</p>
+ <p class="statsNote">„Aktiv“ bedeutet, dass ein eingeloggter Spieler innerhalb von 5 Minuten beziehungsweise 24 Stunden den Server kontaktiert hat. Das ist <strong>keine</strong> genaue Anzeige aller gerade geöffneten Apps. Die Erfassung beginnt mit diesem Update. Statistiken beziehen sich auf Online-Konten und serverseitig gewertete Aktivitäten. Tagesdiagramme verwenden UTC-Tage.</p>
+</section>
+<section class="card" id="playerCenter"><div class="eyebrow">FUNKTION 3 VON 7</div>
 <h2>👥 Spieler-Verwaltung</h2><p class="playerIntro">Alle FitnessPlus-Accounts durchsuchen, einen Spieler auswählen und seine echten Online-Fortschritte ansehen.</p>
 <div class="playerCounters"><div class="playerCounter"><b id="playerTotal">–</b><small>Konten insgesamt</small></div><div class="playerCounter"><b id="playerMembers">–</b><small>Spieler geladen</small></div><div class="playerCounter"><b id="playerAdmins">–</b><small>Admins geladen</small></div></div>
 <label for="playerSearch">Spieler suchen</label><input id="playerSearch" type="search" maxlength="60" placeholder="Benutzername suchen ..." autocomplete="off">
@@ -399,6 +442,57 @@ el('wheelAdminSave').onclick=()=>attempt(async()=>{
 });
 const wheelAdminPreviousLoad=load;
 load=async function(){await wheelAdminPreviousLoad();if(el('panel').classList.contains('hide'))return;try{await wheelAdminLoad()}catch(err){el('wheelAdminMessage').textContent='Glücksrad konnte nicht geladen werden: '+err.message}};
+
+
+// Auto-updating admin dashboard. Server statistics are read-only and admin protected.
+let statsPayload=null,statsChartMode='exercises',statsBusy=false;
+const statsFormat=v=>Number(v||0).toLocaleString('de-DE');
+function drawStatistics(){
+ if(!statsPayload)return;
+ const o=statsPayload.overview;
+ const cards=[
+  ['👥','Registrierte Spieler',o.players,true],['🟢','Aktiv in 5 Min.',o.active5m,true],
+  ['📱','Aktiv in 24 Std.',o.active24h,false],['✨','Neue Spieler (7 Tage)',o.newPlayers7d,false],
+  ['💪','Trainings (7 Tage)',o.workouts7d,false],['✅','Gewertete Übungen (7 Tage)',o.exercises7d,false],
+  ['🎁','Geöffnete Truhen (7 Tage)',o.chests7d,false],['🎡','Glücksrad-Drehungen (7 Tage)',o.spins7d,false],
+  ['💎','Spieler-Diamanten insgesamt',o.diamondsHeld,false]
+ ];
+ el('statsMetrics').innerHTML=cards.map(([icon,label,value,primary])=>
+  `<div class="statsMetric ${primary?'primary':''}"><span class="statsIcon" aria-hidden="true">${icon}</span><strong>${statsFormat(value)}</strong><small>${safe(label)}</small></div>`).join('');
+ const daily=statsPayload.daily||[];
+ const title={exercises:'Gewertete Übungen',workouts:'Trainings mit XP',newPlayers:'Neue Spieler',spins:'Glücksrad-Drehungen'}[statsChartMode];
+ const peak=Math.max(1,...daily.map(item=>Number(item[statsChartMode]||0)));
+ const chart=el('statsChart');
+ chart.setAttribute('aria-label',title+' an den letzten sieben Tagen: '+daily.map(x=>x.date+': '+statsFormat(x[statsChartMode])).join(', '));
+ chart.innerHTML=daily.map(x=>{
+  const amount=Number(x[statsChartMode]||0),height=amount?Math.max(5,Math.round(amount*100/peak)):0;
+  const stamp=x.date.slice(8,10)+'.'+x.date.slice(5,7)+'.';
+  return `<div class="statsColumn"><span class="statsCount">${statsFormat(amount)}</span><div class="statsBarBox"><div class="statsBar" style="height:${height}%" title="${stamp}: ${statsFormat(amount)}"></div></div><span class="statsDay">${stamp}</span></div>`;
+ }).join('');
+ document.querySelectorAll('[data-stats-chart]').forEach(button=>{const selected=button.dataset.statsChart===statsChartMode;button.classList.toggle('selected',selected);button.setAttribute('aria-pressed',String(selected))});
+ const kinds={register:['🆕','hat sich registriert'],exercise:['💪','hat eine Übung abgeschlossen'],chest:['🎁','hat eine Truhe geöffnet'],wheel:['🎡','hat das Glücksrad gedreht']};
+ const feed=statsPayload.recent||[];
+ el('statsFeed').innerHTML=feed.length?feed.map(x=>{
+  const [icon,label]=kinds[x.kind]||['📌','hat die App benutzt'];
+  const at=new Date(Number(x.at));
+  return `<div class="statsFeedRow"><span class="statsFeedIcon" aria-hidden="true">${icon}</span><span class="statsFeedText"><b>${safe(x.player)}</b><small>${safe(label)}</small></span><span class="statsTime">${at.toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit'})}<br>${at.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'})}</span></div>`;
+ }).join(''):'<p class="statsIntro">Bisher keine Spieleraktionen erfasst.</p>';
+ el('statsTimestamp').textContent='Letzte Aktualisierung: '+new Date(statsPayload.generatedAt).toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+ el('statsLiveStatus').textContent='● Live-Daten';
+}
+async function refreshStatistics(){
+ if(statsBusy||el('panel').classList.contains('hide')||document.hidden)return;
+ statsBusy=true;
+ try{statsPayload=await api('admin/live-stats');drawStatistics();}
+ catch(err){el('statsLiveStatus').textContent='● Verbindung prüfen';el('statsTimestamp').textContent='Statistik konnte nicht geladen werden: '+err.message;}
+ finally{statsBusy=false;}
+}
+el('liveStats').addEventListener('click',event=>{const b=event.target.closest('button[data-stats-chart]');if(!b)return;statsChartMode=b.dataset.statsChart;drawStatistics();});
+el('statsRefresh').onclick=()=>attempt(async()=>{await refreshStatistics();status('📊 Live-Statistiken aktualisiert.')});
+const statsPreviousLoad=load;
+load=async function(){await statsPreviousLoad();if(!el('panel').classList.contains('hide'))await refreshStatistics()};
+setInterval(refreshStatistics,30000);
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)refreshStatistics()});
 
 load().catch(async()=>{try{await showLogin()}catch(e){status('Verbindung prüfen: '+e.message,true)}});
 </script></body></html>
