@@ -666,7 +666,7 @@ async function refreshEvents(){
     fpEventAccount={authenticated:true,wheelUsed:!!details.wheelUsed,wheelSpinsUsed:Number(details.wheelSpinsUsed)||0,wheelSpinsRemaining:Number.isInteger(details.wheelSpinsRemaining)?details.wheelSpinsRemaining:details.wheelUsed?0:1,giftClaimed:!!details.giftClaimed,progress:Number(details.progress)||0,tiers:Array.isArray(details.tiers)?details.tiers:[]};
    }else if(status.status===401){fpEventAccount={authenticated:false,wheelUsed:false,wheelSpinsUsed:0,wheelSpinsRemaining:fpWheelConfig.maxSpinsPerDay,giftClaimed:false,progress:0,tiers:[]}}
   }catch(_e){/* Keep the most recent account status for temporary network errors. */}
-  if(s.view==='events'||previousId!==(e?.updatedAt||0))render();
+  if(!fpWheelAnimating&&(s.view==='events'||previousId!==(e?.updatedAt||0)))render();
  }catch(err){
   // On a connection interruption keep the most recently confirmed event visible.
   if(s.view==='events')fpEventBanner();
@@ -678,6 +678,96 @@ function fpEventLogin(){
  if(typeof window.FitnessPlusOpenOnline==='function'){window.FitnessPlusOpenOnline();return}
  window.location.assign('/online.html');
 }
+// FitnessPlus: sichtbares, servergesteuertes Gluecksrad.
+// Die Sektoren folgen denselben Gewichten, die der Server bei der Ziehung verwendet.
+let fpWheelRotation=0, fpWheelLastWin=null, fpWheelAnimating=false;
+const FP_WHEEL_PALETTE=['#7c3aed','#0891b2','#ea580c','#db2777','#0d9488','#4f46e5','#b45309','#be185d'];
+function fpWheelSectors(){
+ const prizeList=Array.isArray(fpWheelConfig.prizes)?fpWheelConfig.prizes:[];
+ const valid=prizeList.filter(x=>x&&Number.isSafeInteger(x.diamonds)&&x.diamonds>0&&Number.isSafeInteger(x.weight)&&x.weight>0);
+ const total=valid.reduce((sum,p)=>sum+p.weight,0);
+ let position=0;
+ return valid.map((p,i)=>{
+  const start=position,angle=360*p.weight/total;
+  position+=angle;
+  return {diamonds:p.diamonds,weight:p.weight,index:i,start,end:position,center:start+angle/2,angle,color:FP_WHEEL_PALETTE[i%FP_WHEEL_PALETTE.length],percentage:100*p.weight/total};
+ });
+}
+function fpWheelPercent(pct){
+ return pct.toLocaleString('de-DE',{maximumFractionDigits:pct<1?2:1})+' %';
+}
+function fpWheelPolar(radius,degree){
+ const radians=degree*Math.PI/180;
+ return {x:Math.sin(radians)*radius,y:-Math.cos(radians)*radius};
+}
+function fpWheelSvg(sectors){
+ const r=145;
+ const wedges=sectors.map(part=>{
+  const a=fpWheelPolar(r,part.start),b=fpWheelPolar(r,part.end);
+  const large=part.angle>180?1:0;
+  const label=fpWheelPolar(part.angle<22?110:91,part.center);
+  const size=part.angle<18?9:part.angle<30?11:part.diamonds>=1000?12:15;
+  const path=`M0 0 L${a.x.toFixed(3)} ${a.y.toFixed(3)} A${r} ${r} 0 ${large} 1 ${b.x.toFixed(3)} ${b.y.toFixed(3)} Z`;
+  return `<path d="${path}" fill="${part.color}" stroke="#fff" stroke-width="2.4" stroke-linejoin="round"/>`+
+   `<text x="${label.x.toFixed(2)}" y="${label.y.toFixed(2)}" fill="#fff" stroke="#243049" stroke-opacity=".32" stroke-width="2.5" paint-order="stroke" text-anchor="middle" dominant-baseline="central" font-size="${size}" font-weight="800">${part.diamonds}</text>`+
+   (part.angle>=17?`<text x="${label.x.toFixed(2)}" y="${(label.y+size*1.10).toFixed(2)}" text-anchor="middle" dominant-baseline="central" font-size="${Math.max(10,size-1)}">💎</text>`:'');
+ }).join('');
+ return `<svg viewBox="-155 -155 310 310" class="fp-wheel-svg" role="img" aria-label="Glücksrad mit ${sectors.length} Gewinnen">${wedges}<circle cx="0" cy="0" r="146" fill="none" stroke="#fef3c7" stroke-width="4"/></svg>`;
+}
+function fpWheelWidget(){
+ const sectors=fpWheelSectors();
+ if(sectors.length<2)return '<p class="sub">Die Glücksrad-Gewinne werden geladen.</p>';
+ const wins=sectors.map(p=>`<div class="fp-wheel-odds-entry" role="listitem"><span class="fp-wheel-swatch" style="background:${p.color}"></span><span class="fp-wheel-prize">${p.diamonds} 💎</span><strong>${fpWheelPercent(p.percentage)}</strong></div>`).join('');
+ return `<div class="fp-wheel-wrap"><div class="fp-wheel-rotator" id="fpWheelSpinner" style="transform:rotate(${fpWheelRotation}deg)">${fpWheelSvg(sectors)}</div><div class="fp-wheel-pointer" aria-hidden="true"></div><div class="fp-wheel-center" aria-hidden="true">★</div></div>`+
+  `<div class="fp-wheel-odds"><b>💎 Gewinne & Gewinnchancen</b><div class="fp-wheel-odds-grid" role="list">${wins}</div><div class="sub" style="margin-top:8px">Die Feldgrößen zeigen die Gewinnchancen. Prozentangaben sind gerundet.</div></div>`+
+  `<div id="fpWheelSpinResult" class="fp-wheel-result" role="status" aria-live="polite">${fpWheelAnimating?'🎡 Das Glücksrad dreht sich …':fpWheelLastWin!==null?'🎉 Du hast '+Number(fpWheelLastWin)+' 💎 gewonnen!':''}</div>`;
+}
+function fpWheelStyles(){
+ if(document.getElementById('fpWheelStyles'))return;
+ const style=document.createElement('style');style.id='fpWheelStyles';
+ style.textContent=`
+ .fp-wheel-wrap{position:relative;width:min(100%,320px);aspect-ratio:1;margin:16px auto 20px;isolation:isolate}
+ .fp-wheel-rotator{position:absolute;inset:9px;border:9px solid #ffcf54;border-radius:50%;overflow:hidden;background:#fff;box-shadow:0 10px 28px rgba(66,31,120,.25),inset 0 0 0 2px #fff;will-change:transform}
+ .fp-wheel-svg{width:100%;height:100%;display:block}
+ .fp-wheel-pointer{position:absolute;top:-1px;left:50%;transform:translateX(-50%);width:31px;height:42px;background:#f9b925;clip-path:polygon(0 0,100% 0,50% 100%);filter:drop-shadow(0 4px 3px rgba(0,0,0,.35));z-index:3}
+ .fp-wheel-center{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:2;width:54px;height:54px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#fff6d4,#f6ba3c);border:5px solid #fff4c0;box-shadow:0 3px 9px rgba(0,0,0,.25);display:grid;place-items:center;color:#725017;font-size:23px;font-weight:900}
+ .fp-wheel-odds{margin:14px 0 8px;padding:14px;border-radius:16px;background:#f5f3ff;color:#24163f}
+ .fp-wheel-odds-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:10px}
+ .fp-wheel-odds-entry{display:flex;align-items:center;gap:7px;background:white;border-radius:11px;padding:9px 8px;font-size:13px;min-width:0}
+ .fp-wheel-odds-entry strong{margin-left:auto;white-space:nowrap;color:#5b21b6;font-size:12px}
+ .fp-wheel-prize{white-space:nowrap;font-weight:750}
+ .fp-wheel-swatch{height:13px;width:13px;flex:0 0 13px;border-radius:50%;border:1px solid rgba(0,0,0,.13)}
+ .fp-wheel-result{font-weight:800;text-align:center;color:#6d28d9;min-height:22px;margin:14px 0 2px;font-size:17px}
+ @media (max-width:350px){.fp-wheel-odds-grid{grid-template-columns:1fr}.fp-wheel-wrap{width:min(100%,285px)}}
+ @media (prefers-reduced-motion:reduce){.fp-wheel-rotator{animation:none}}
+ `;document.head.appendChild(style);
+}
+fpWheelStyles();
+async function fpWheelSpinResult(prize){
+ // Das Guthaben wurde bereits durch den Server gebucht. Die Animation zeigt nur das Ergebnis.
+ let arcs=fpWheelSectors();
+ if(!arcs.some(x=>x.diamonds===prize)){
+  await refreshEvents();arcs=fpWheelSectors();
+  // Bei zeitgleich geaenderter Admin-Konfiguration bleibt der Gewinn gueltig.
+  if(!arcs.some(x=>x.diamonds===prize))return;
+  render();
+ }
+ const match=arcs.find(x=>x.diamonds===prize);
+ const wheel=document.getElementById('fpWheelSpinner');
+ if(!wheel)return;
+ const current=((fpWheelRotation%360)+360)%360;
+ const desired=((360-match.center)%360+360)%360;
+ const delta=(desired-current+360)%360;
+ const reduced=window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+ const duration=reduced?30:4800;
+ fpWheelRotation+=360*(reduced?1:6)+delta;
+ wheel.style.transition=`transform ${duration}ms cubic-bezier(.12,.73,.13,1)`;
+ // Zwei Frames erlauben Safari und Samsung Internet, den Startwinkel zu zeichnen.
+ await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+ wheel.style.transform=`rotate(${fpWheelRotation}deg)`;
+ await new Promise(resolve=>setTimeout(resolve,duration+90));
+}
+
 function eventView(){
  const e=activeEvent();let html=hdr('FITNESSPLUS EVENTS','Events & Belohnungen.')+
   '<button class="btn" data-eventback="1">← Zurück</button>';
@@ -686,10 +776,8 @@ function eventView(){
  if(e.doubleXp)html+='<div class="card"><b>⚡ Doppel-XP aktiv</b><p class="sub">Online bestätigte Übungen geben doppelten Fortschritt, sofern kein anderer Booster aktiv ist.</p></div>';
  if(e.wheel){
   const used=fpEventAccount.authenticated&&fpEventAccount.wheelSpinsRemaining<=0;
-  const prizes=fpWheelConfig.prizes||[],total=prizes.reduce((n,p)=>n+(Number(p.weight)||0),0);
-  const chanceText=prizes.map(p=>Number(p.diamonds)+' 💎 ('+(total?Math.round(100*Number(p.weight)/total):0)+' %)').join(' · ');
   const spinsLeft=fpEventAccount.authenticated?fpEventAccount.wheelSpinsRemaining:fpWheelConfig.maxSpinsPerDay;
-  html+='<div class="card"><div style="font-size:44px;text-align:center">🎡</div><b>Dein Glücksrad</b><p class="sub">Heute noch '+spinsLeft+' von '+fpWheelConfig.maxSpinsPerDay+' Drehungen übrig. Neuer Tag ab 00:00 Uhr UTC.</p><p class="sub">Mögliche Gewinne: '+safe(chanceText)+'</p><button class="primary" data-eventspin="1" '+(used?'disabled':'')+'>'+(used?'✓ Für heute alle Drehungen verbraucht':fpEventAccount.authenticated?'🎡 Glücksrad drehen und einlösen':'🔑 Anmelden und Glücksrad einlösen')+'</button></div>';
+  html+='<div class="card"><h2>🎡 Dein Glücksrad</h2><p class="sub">Heute noch '+spinsLeft+' von '+fpWheelConfig.maxSpinsPerDay+' Drehungen übrig. Neuer Tag ab 00:00 Uhr UTC.</p>'+fpWheelWidget()+'<button class="primary" data-eventspin="1" '+(used||fpEventBusy?'disabled':'')+'>'+(fpWheelAnimating?'🎡 Das Rad dreht sich …':used?'✓ Für heute alle Drehungen verbraucht':fpEventAccount.authenticated?'🎡 Jetzt drehen':'🔑 Anmelden und Glücksrad drehen')+'</button></div>';
  }
  const gift=Math.floor(Number(e.giftDiamonds)||0);
  if(gift>0)html+='<div class="card"><b>🎁 Geschenk für alle</b><p class="sub">'+gift+' 💎 einmalig pro Event abholen.</p><button class="primary" data-eventgift="1" '+(fpEventAccount.giftClaimed?'disabled':'')+'>'+(fpEventAccount.giftClaimed?'✓ Geschenk abgeholt':fpEventAccount.authenticated?'🎁 '+gift+' Diamanten einlösen':'🔑 Anmelden und Geschenk einlösen')+'</button></div>';
@@ -727,12 +815,20 @@ document.addEventListener('click',async e=>{
   else if(isGift)result=await fpEventClaim('/api/game/event/gift');
   else result=await fpEventClaim('/api/game/season/claim',{tier:Number(b.dataset.seasonclaim)});
   if(result.user){s.diamonds=result.user.diamonds;s.levelExercises=result.user.xp}
+  if(isWheel){
+   fpWheelAnimating=true;fpWheelLastWin=null;
+   if(Number.isSafeInteger(result.spinsRemaining))fpEventAccount.wheelSpinsRemaining=result.spinsRemaining;
+   const statusEl=document.getElementById('fpWheelSpinResult');
+   if(statusEl)statusEl.textContent='🎡 Das Glücksrad dreht sich …';
+   await fpWheelSpinResult(Number(result.diamonds));
+   fpWheelAnimating=false;fpWheelLastWin=Number(result.diamonds);
+  }
   await refreshEvents();
   render();
-  if(isWheel)toast('🎡 Glücksrad eingelöst! +'+result.diamonds+' 💎');
+  if(isWheel)toast('🎡 Gewonnen: +'+result.diamonds+' 💎!');
   else toast('🎁 Eventbelohnung: +'+result.diamonds+' 💎!');
- }catch(err){toast(err.message||'Einlösen fehlgeschlagen');await refreshEvents();}
- finally{fpEventBusy=false;}
+ }catch(err){fpWheelAnimating=false;toast(err.message||'Einlösen fehlgeschlagen');await refreshEvents();}
+ finally{fpEventBusy=false;if(s.view==='events')render();}
 },true);
 const exportBeforeEvents=doExport;doExport=function(){const data=JSON.parse(localStorage.getItem(KEY)||'{}');const payload={app:'FitnessPlus',version:'6.8',exportedAt:new Date().toISOString(),data:{...data,eventClaims:s.eventClaims,seasonProgress:s.seasonProgress,eventWheel:s.eventWheel}};let blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='FitnessPlus-Backup-'+day()+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),2000)};
 $('#importFile').addEventListener('change',async e=>{try{let f=e.target.files?.[0];if(!f)return;let p=JSON.parse(await f.text());if(p.app!=='FitnessPlus'||!p.data)return;let d=p.data;s.eventClaims=d.eventClaims&&typeof d.eventClaims==='object'?d.eventClaims:{};s.seasonProgress=d.seasonProgress&&typeof d.seasonProgress==='object'?d.seasonProgress:{};s.eventWheel=d.eventWheel&&typeof d.eventWheel==='object'?d.eventWheel:{};save();render()}catch(_){}},true);
