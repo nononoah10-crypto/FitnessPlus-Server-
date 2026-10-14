@@ -54,7 +54,38 @@ function currentEvent(){return JSON.parse(q('SELECT value FROM settings WHERE ke
 function eventId(e){return String(e.updatedAt||0)}
 function seasonTiers(){return [{at:3,diamonds:10},{at:10,diamonds:25},{at:25,diamonds:60},{at:50,diamonds:120}]}
 function gameEvents(u){const e=currentEvent(),id=eventId(e),day=new Date().toISOString().slice(0,10),progress=q('SELECT COUNT(*) n FROM game_exercises WHERE run_id IN (SELECT id FROM game_runs WHERE user_id=?) AND awarded_at>=?',u.id,Number(e.updatedAt)||0).n;return {config:e,id,progress,tiers:seasonTiers().map(t=>({...t,claimed:!!q('SELECT 1 FROM game_season_claims WHERE user_id=? AND season_id=? AND tier=?',u.id,id,t.at)})),wheelUsed:!!q('SELECT 1 FROM game_wheel WHERE user_id=? AND event_id=? AND award_day=?',u.id,id,day),giftClaimed:!!q('SELECT 1 FROM game_event_claims WHERE user_id=? AND event_id=?',u.id,id)}}
-const boostCatalog={boost2small:{price:300,multiplier:2,uses:3},boost2long:{price:650,multiplier:2,uses:8},boost3mega:{price:1000,multiplier:3,uses:5}};
+// Editor-backed booster catalog: server-side authority for prices and products.
+const SHOP_KEY='booster_catalog_v1';
+const SHOP_DEFAULTS=[
+ {id:'boost2small',emoji:'\u26a1',name:'Doppel-Power',desc:'2x Level-Fortschritt fuer 3 abgeschlossene Uebungen.',basePrice:300,discountPercent:0,multiplier:2,uses:3,active:true},
+ {id:'boost2long',emoji:'\ud83d\ude80',name:'Trainings-Turbo',desc:'2x Level-Fortschritt fuer 8 abgeschlossene Uebungen.',basePrice:650,discountPercent:0,multiplier:2,uses:8,active:true},
+ {id:'boost3mega',emoji:'\ud83d\udd25',name:'Mega-XP',desc:'3x Level-Fortschritt fuer 5 abgeschlossene Uebungen.',basePrice:1000,discountPercent:0,multiplier:3,uses:5,active:true}
+];
+function storedShop(){
+ try{const raw=JSON.parse(q('SELECT value FROM settings WHERE key=?',SHOP_KEY)?.value||'{}');
+  return raw&&Array.isArray(raw.items)?raw:{version:0,items:[]};}
+ catch(_){return {version:0,items:[]}}
+}
+function shopCatalog(){
+ const saved=storedShop(),map=new Map(saved.items.filter(x=>x&&typeof x.id==='string').map(x=>[x.id,x]));
+ const standard=SHOP_DEFAULTS.map(d=>({...d,...map.get(d.id),id:d.id,multiplier:d.multiplier,uses:d.uses}));
+ const custom=saved.items.filter(x=>x&&typeof x.id==='string'&&/^custom_[a-f0-9]{16}$/.test(x.id));
+ return [...standard,...custom].map(x=>({...x,price:Math.max(1,Math.round(x.basePrice*(100-x.discountPercent)/100))}));
+}
+function shopFind(id){return shopCatalog().find(x=>x.id===id)}
+function shopEditFields(data,existing){
+ const name=String(data.name||'').trim(),desc=String(data.desc||'').trim(),emoji=String(data.emoji||'').trim();
+ const basePrice=Number(data.basePrice),discountPercent=Number(data.discountPercent);
+ const multiplier=existing&&!existing.id.startsWith('custom_')?existing.multiplier:Number(data.multiplier);
+ const uses=existing&&!existing.id.startsWith('custom_')?existing.uses:Number(data.uses);
+ if(!name||name.length>45||desc.length>160||!emoji||emoji.length>16)throw Error('Shop-Name, Beschreibung oder Symbol ungueltig');
+ if(!Number.isSafeInteger(basePrice)||basePrice<1||basePrice>1000000)throw Error('Preis muss zwischen 1 und 1.000.000 Diamanten liegen');
+ if(!Number.isSafeInteger(discountPercent)||discountPercent<0||discountPercent>90)throw Error('Rabatt muss zwischen 0 und 90 Prozent liegen');
+ if(![2,3].includes(multiplier)||!Number.isSafeInteger(uses)||uses<1||uses>30)throw Error('Booster muss 2x oder 3x und 1 bis 30 Uebungen bieten');
+ if(typeof data.active!=='boolean')throw Error('Aktiv-Status fehlt');
+ return {name,desc,emoji,basePrice,discountPercent,multiplier,uses,active:data.active};
+}
+
 const q=(sql,...args)=>db.prepare(sql).get(...args), all=(sql,...args)=>db.prepare(sql).all(...args), run=(sql,...args)=>db.prepare(sql).run(...args);
 const uid=()=>crypto.randomUUID(), random=(n=24)=>crypto.randomBytes(n).toString('base64url');
 function hashPass(password,salt){return crypto.scryptSync(password,salt,64).toString('hex')}
@@ -159,6 +190,7 @@ async function handler(req,res){try{
   const u=typeof data.name==='string'?q('SELECT * FROM users WHERE username=?',data.name):null;
   if(!u||typeof data.password!=='string'||!authPass(u,data.password))return error(res,401,'Login fehlgeschlagen');return startSession(res,u)
  }
+  if(req.method==='GET'&&url.pathname==='/api/shop'){const cfg=storedShop();return json(res,200,{items:shopCatalog().filter(x=>x.active),version:cfg.version||0})}
  if(req.method==='GET'&&url.pathname==='/api/events')return json(res,200,{events:currentEvent()});
  const passkeyAdmin=passkeySession(req);
  const u=session(req)||(passkeyAdmin&&(url.pathname.startsWith('/api/admin/')||url.pathname==='/api/events')?{id:'passkey-admin',role:'admin'}:null);
@@ -248,7 +280,8 @@ async function handler(req,res){try{
   }catch(e){db.exec('ROLLBACK');throw e}
  }
  if(req.method==='POST'&&url.pathname==='/api/game/shop/buy'){
-  const item=String(data.item||''),b=boostCatalog[item];if(!b)return error(res,400,'Unbekanntes Produkt');
+  const item=String(data.item||''),b=shopFind(item);if(!b||!b.active)return error(res,400,'Produkt nicht verfuegbar');
+   if(!Number.isSafeInteger(data.expectedPrice)||data.expectedPrice!==b.price)return error(res,409,'Shop-Preis geaendert. Bitte Shop aktualisieren.');
   db.exec('BEGIN IMMEDIATE');try{
    const active=q('SELECT uses FROM game_boosters WHERE user_id=?',u.id);if(active?.uses>0){db.exec('ROLLBACK');return error(res,409,'Booster bereits aktiv')}
    const debit=run('UPDATE users SET diamonds=diamonds-? WHERE id=? AND diamonds>=?',b.price,u.id,b.price);
@@ -310,7 +343,7 @@ async function handler(req,res){try{
   return json(res,200,{gifts:[...items,...diamonds].sort((a,b)=>b.createdAt-a.createdAt).slice(0,100)});
  }
  if(req.method==='POST'&&url.pathname==='/api/gifts/send'){
-  const item=String(data.item||''),b=boostCatalog[item],friendId=String(data.friendId||''),kind=String(data.kind||'');
+  const item=String(data.item||''),b=shopFind(item),friendId=String(data.friendId||''),kind=String(data.kind||'');
   const amount=Number(data.amount);
   if(kind==='diamonds'){if(!Number.isSafeInteger(amount)||amount<1||amount>100000)return error(res,400,'Ungültige Diamantenanzahl');}
   else return error(res,400,'Es können nur Diamanten verschenkt werden');
@@ -334,7 +367,7 @@ async function handler(req,res){try{
    if(!gift){db.exec('ROLLBACK');return error(res,404,'Geschenk nicht verfügbar')}
    const active=q('SELECT uses FROM game_boosters WHERE user_id=?',u.id);
    if(active?.uses>0){db.exec('ROLLBACK');return error(res,409,'Bitte zuerst deinen aktiven Booster aufbrauchen')}
-   const b=boostCatalog[gift.item];if(!b){db.exec('ROLLBACK');return error(res,400,'Produkt nicht verfügbar')}
+   const b=shopFind(gift.item);if(!b){db.exec('ROLLBACK');return error(res,400,'Produkt nicht verfügbar')}
    run('UPDATE game_boosters SET multiplier=?,uses=? WHERE user_id=?',b.multiplier,b.uses,u.id);
    run('INSERT OR IGNORE INTO game_boosters(user_id,multiplier,uses) VALUES(?,?,?)',u.id,b.multiplier,b.uses);
    run('UPDATE direct_gifts SET claimed_at=? WHERE id=? AND claimed_at IS NULL',Date.now(),giftId);
@@ -342,8 +375,8 @@ async function handler(req,res){try{
   }catch(err){db.exec('ROLLBACK');throw err}
  }
  if(req.method==='POST'&&url.pathname==='/api/game/gift/create'){
-  const item=String(data.item||''),boost=boostCatalog[item],recipientCode=String(data.friendCode||'').trim();
-  if(!boost)return error(res,400,'Unbekannter Geschenk-Booster');
+  const item=String(data.item||''),boost=shopFind(item),recipientCode=String(data.friendCode||'').trim();
+  if(!boost||!boost.active)return error(res,400,'Unbekannter Geschenk-Booster');
   const receiver=q('SELECT * FROM users WHERE friend_code=?',recipientCode);
   if(!receiver||receiver.id===u.id)return error(res,404,'Empfänger nicht gefunden');
   const code='FPG-'+random(18),hashed=crypto.createHash('sha256').update(code).digest('hex');
@@ -362,7 +395,7 @@ async function handler(req,res){try{
    if(!gift||gift.recipient_id!==u.id||gift.redeemed_at){db.exec('ROLLBACK');return error(res,404,'Code ungültig, bereits eingelöst oder nicht für dich')}
    const active=q('SELECT uses FROM game_boosters WHERE user_id=?',u.id);
    if(active?.uses>0){db.exec('ROLLBACK');return error(res,409,'Bitte zuerst deinen aktiven Booster aufbrauchen')}
-   const b=boostCatalog[gift.item];if(!b){db.exec('ROLLBACK');return error(res,400,'Geschenk nicht mehr verfügbar')}
+   const b=shopFind(gift.item);if(!b){db.exec('ROLLBACK');return error(res,400,'Geschenk nicht mehr verfügbar')}
    run('UPDATE game_gift_codes SET redeemed_at=?,redeemed_by=? WHERE id=? AND redeemed_at IS NULL',Date.now(),u.id,gift.id);
    run('INSERT INTO game_boosters(user_id,multiplier,uses) VALUES(?,?,?) ON CONFLICT(user_id) DO UPDATE SET multiplier=excluded.multiplier,uses=excluded.uses',u.id,b.multiplier,b.uses);
    db.exec('COMMIT');return json(res,200,{ok:true,booster:{multiplier:b.multiplier,uses:b.uses},user:publicUser(q('SELECT * FROM users WHERE id=?',u.id))});
@@ -427,7 +460,32 @@ async function handler(req,res){try{
   const lastExercise=q('SELECT MAX(e.awarded_at) AS at FROM game_exercises e JOIN game_runs r ON r.id=e.run_id WHERE r.user_id=?',id)?.at||null;
   return json(res,200,{player:{...player,creditedExercises,rewardedTrainings,openedChests,unopenedChests,friends,purchases,lastExercise}});
  }
-if(req.method==='GET'&&url.pathname==='/api/admin/users')return json(res,200,{total:q('SELECT COUNT(*) AS n FROM users').n,users:all('SELECT id,username AS name,diamonds,xp,role,created_at AS createdAt,1+CAST(xp/3 AS INTEGER) AS level FROM users ORDER BY username LIMIT 500')});
+if(req.method==='GET'&&url.pathname==='/api/admin/shop'){
+  const cfg=storedShop();return json(res,200,{items:shopCatalog(),version:cfg.version||0});
+ }
+ if(req.method==='POST'&&url.pathname==='/api/admin/shop'){
+  const cfg=storedShop(),version=Number(data.version);
+  if(!Number.isSafeInteger(version)||version!==(cfg.version||0))return error(res,409,'Shop wurde inzwischen geaendert. Bitte neu laden.');
+  const mode=String(data.mode||'update'),stored=cfg.items.map(x=>({...x}));
+  let id=String(data.id||''),existing=shopCatalog().find(x=>x.id===id);
+  if(mode==='create'){
+   if(stored.filter(x=>String(x.id).startsWith('custom_')).length>=20)return error(res,400,'Maximal 20 eigene Booster');
+   id='custom_'+crypto.randomBytes(8).toString('hex');
+   existing=null;
+  }else if(mode==='update'){
+   if(!existing)return error(res,404,'Booster nicht gefunden');
+  }else return error(res,400,'Aktion unbekannt');
+  let fields;
+  try{fields=shopEditFields(data,existing)}catch(err){return error(res,400,err.message)}
+  const value={id,...fields};
+  const at=stored.findIndex(x=>x.id===id);
+  if(at>=0)stored[at]=value;else stored.push(value);
+  const nextVersion=Math.max(Date.now(),(cfg.version||0)+1);
+  run('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value',SHOP_KEY,JSON.stringify({version:nextVersion,items:stored}));
+  audit(u.id,'shop',mode,id+' '+fields.name+' '+fields.basePrice+' discount '+fields.discountPercent);
+  return json(res,200,{ok:true,items:shopCatalog(),version:nextVersion});
+ }
+ if(req.method==='GET'&&url.pathname==='/api/admin/users')return json(res,200,{total:q('SELECT COUNT(*) AS n FROM users').n,users:all('SELECT id,username AS name,diamonds,xp,role,created_at AS createdAt,1+CAST(xp/3 AS INTEGER) AS level FROM users ORDER BY username LIMIT 500')});
  if(req.method==='POST'&&url.pathname==='/api/admin/diamonds'){
   const v=Number(data.amount),target=q('SELECT * FROM users WHERE id=?',String(data.userId||''));if(!target||!Number.isSafeInteger(v)||v<1||v>100000)return error(res,400,'Ungültiger Empfänger/Betrag');
   run('UPDATE users SET diamonds=diamonds+? WHERE id=?',v,target.id);run('INSERT INTO gifts VALUES(?,?,?,?,?)',uid(),u.id,target.id,v,Date.now());audit(u.id,target.id,'diamonds',v);return json(res,200,{ok:true})
