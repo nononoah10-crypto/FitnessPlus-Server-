@@ -835,3 +835,32 @@ render=function(){fpRenderWithBanner();fpBoosterBanner()};
 setInterval(fpBoosterBanner,1000);
 
 })();
+
+
+// Automatic workout completion once the configured duration is reached.
+(() => {
+  let finishingStart = null;
+  const originalTick = timerTick;
+  timerTick = function() {
+    originalTick();
+    if (!s.active) { finishingStart = null; return; }
+    const active = s.active;
+    const started = Number(active.started) || 0;
+    if (!started || finishingStart === started) return;
+    const info = rewardTimeInfo();
+    if (info.actualElapsed < info.required && !active.goalReached) return;
+    finishingStart = started;
+    if (!active.goalReached) handleGoalReached();
+    // Keep the reward notification visible briefly before saving the workout.
+    setTimeout(() => {
+      if (!s.active || Number(s.active.started) !== started) return;
+      const finish = document.querySelector('[data-action="finish"]');
+      if (finish) finish.click();
+      else {
+        // The user may be on another tab; finish through the existing handler.
+        s.tab = 'train'; s.view = ''; render();
+        document.querySelector('[data-action="finish"]')?.click();
+      }
+    }, 1100);
+  };
+})();
