@@ -392,9 +392,9 @@ $('#importFile').addEventListener('change',async e=>{const f=e.target.files?.[0]
 
 // FitnessPlus 5.7: exclusively level boosters in shop. Previous cosmetic purchases are retained in backup but no longer sold.
 const levelBoosters=[
- {id:'boost2small',emoji:'⚡',name:'Doppel-Power',desc:'2× Level-Fortschritt bei den nächsten 3 wirklich abgeschlossenen Übungen.',price:60,multiplier:2,uses:3},
- {id:'boost2long',emoji:'🚀',name:'Trainings-Turbo',desc:'2× Level-Fortschritt bei den nächsten 8 wirklich abgeschlossenen Übungen.',price:130,multiplier:2,uses:8},
- {id:'boost3mega',emoji:'🔥',name:'Mega-XP',desc:'3× Level-Fortschritt bei den nächsten 5 wirklich abgeschlossenen Übungen.',price:200,multiplier:3,uses:5}
+ {id:'boost2small',emoji:'⚡',name:'Doppel-Power',desc:'2× Level-Fortschritt bei den nächsten 3 wirklich abgeschlossenen Übungen.',price:300,multiplier:2,uses:3},
+ {id:'boost2long',emoji:'🚀',name:'Trainings-Turbo',desc:'2× Level-Fortschritt bei den nächsten 8 wirklich abgeschlossenen Übungen.',price:650,multiplier:2,uses:8},
+ {id:'boost3mega',emoji:'🔥',name:'Mega-XP',desc:'3× Level-Fortschritt bei den nächsten 5 wirklich abgeschlossenen Übungen.',price:1000,multiplier:3,uses:5}
 ];
 s.levelBoostMultiplier=[2,3].includes(Number(s.levelBoostMultiplier))?Number(s.levelBoostMultiplier):1;
 s.levelBoostUses=Math.max(0,Math.floor(Number(s.levelBoostUses)||0));
