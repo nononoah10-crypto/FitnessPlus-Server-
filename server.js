@@ -50,10 +50,47 @@ function broadcastSummary(g,userId){
   eligible,claimed};
 }
 
+// Wheel editor: all prize draws happen on the server, not in the browser.
+db.exec(`CREATE TABLE IF NOT EXISTS game_wheel_spins (
+ id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+ event_id TEXT NOT NULL, award_day TEXT NOT NULL, diamonds INTEGER NOT NULL CHECK(diamonds>0), created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_game_wheel_spins_daily ON game_wheel_spins(user_id,event_id,award_day);`);
+const WHEEL_KEY='wheel_config_v1';
+const WHEEL_DEFAULT={version:0,maxSpinsPerDay:1,prizes:[
+ {diamonds:5,weight:40},{diamonds:10,weight:25},{diamonds:15,weight:18},
+ {diamonds:20,weight:12},{diamonds:30,weight:5}
+]};
+function wheelSettings(){
+ try{
+  const v=JSON.parse(q('SELECT value FROM settings WHERE key=?',WHEEL_KEY)?.value||'null');
+  if(v&&Number.isSafeInteger(v.version)&&Number.isSafeInteger(v.maxSpinsPerDay)&&v.maxSpinsPerDay>=1&&v.maxSpinsPerDay<=5&&Array.isArray(v.prizes)&&v.prizes.length>=2&&v.prizes.length<=8&&v.prizes.every(x=>Number.isSafeInteger(x.diamonds)&&x.diamonds>=1&&x.diamonds<=10000&&Number.isSafeInteger(x.weight)&&x.weight>=1&&x.weight<=100))return v;
+ }catch(_e){}
+ return WHEEL_DEFAULT;
+}
+function wheelCycle(e){return String(e.wheelCycleId||e.updatedAt||0)}
+function wheelSpinCount(u,id,day){
+ // game_wheel contains pre-editor draws; count those as well so old users cannot spin twice.
+ const old=q('SELECT COUNT(*) n FROM game_wheel WHERE user_id=? AND event_id=? AND award_day=?',u,id,day).n;
+ const newer=q('SELECT COUNT(*) n FROM game_wheel_spins WHERE user_id=? AND event_id=? AND award_day=?',u,id,day).n;
+ return old+newer;
+}
+function wheelPrize(cfg){
+ const total=cfg.prizes.reduce((a,x)=>a+x.weight,0);
+ let r=crypto.randomInt(total);
+ for(const prize of cfg.prizes){r-=prize.weight;if(r<0)return prize.diamonds}
+ return cfg.prizes[cfg.prizes.length-1].diamonds;
+}
 function currentEvent(){return JSON.parse(q('SELECT value FROM settings WHERE key=?','events')?.value||'{}')}
 function eventId(e){return String(e.updatedAt||0)}
 function seasonTiers(){return [{at:3,diamonds:10},{at:10,diamonds:25},{at:25,diamonds:60},{at:50,diamonds:120}]}
-function gameEvents(u){const e=currentEvent(),id=eventId(e),day=new Date().toISOString().slice(0,10),progress=q('SELECT COUNT(*) n FROM game_exercises WHERE run_id IN (SELECT id FROM game_runs WHERE user_id=?) AND awarded_at>=?',u.id,Number(e.updatedAt)||0).n;return {config:e,id,progress,tiers:seasonTiers().map(t=>({...t,claimed:!!q('SELECT 1 FROM game_season_claims WHERE user_id=? AND season_id=? AND tier=?',u.id,id,t.at)})),wheelUsed:!!q('SELECT 1 FROM game_wheel WHERE user_id=? AND event_id=? AND award_day=?',u.id,id,day),giftClaimed:!!q('SELECT 1 FROM game_event_claims WHERE user_id=? AND event_id=?',u.id,id)}}
+function gameEvents(u){
+ const e=currentEvent(),id=eventId(e),day=new Date().toISOString().slice(0,10),cfg=wheelSettings();
+ const progress=q('SELECT COUNT(*) n FROM game_exercises WHERE run_id IN (SELECT id FROM game_runs WHERE user_id=?) AND awarded_at>=?',u.id,Number(e.updatedAt)||0).n;
+ const wheelSpinsUsed=wheelSpinCount(u.id,wheelCycle(e),day);
+ const wheelSpinsRemaining=Math.max(0,cfg.maxSpinsPerDay-wheelSpinsUsed);
+ return {config:e,id,progress,tiers:seasonTiers().map(t=>({...t,claimed:!!q('SELECT 1 FROM game_season_claims WHERE user_id=? AND season_id=? AND tier=?',u.id,id,t.at)})),wheelUsed:wheelSpinsRemaining===0,wheelSpinsUsed,wheelSpinsRemaining,wheelMaxSpins:cfg.maxSpinsPerDay,giftClaimed:!!q('SELECT 1 FROM game_event_claims WHERE user_id=? AND event_id=?',u.id,id)}
+}
 // Editor-backed booster catalog: server-side authority for prices and products.
 const SHOP_KEY='booster_catalog_v1';
 const SHOP_DEFAULTS=[
@@ -191,7 +228,7 @@ async function handler(req,res){try{
   if(!u||typeof data.password!=='string'||!authPass(u,data.password))return error(res,401,'Login fehlgeschlagen');return startSession(res,u)
  }
   if(req.method==='GET'&&url.pathname==='/api/shop'){const cfg=storedShop();return json(res,200,{items:shopCatalog().filter(x=>x.active),version:cfg.version||0})}
- if(req.method==='GET'&&url.pathname==='/api/events')return json(res,200,{events:currentEvent()});
+ if(req.method==='GET'&&url.pathname==='/api/events')return json(res,200,{events:currentEvent(),wheelConfig:wheelSettings()});
  const passkeyAdmin=passkeySession(req);
  const u=session(req)||(passkeyAdmin&&(url.pathname.startsWith('/api/admin/')||url.pathname==='/api/events')?{id:'passkey-admin',role:'admin'}:null);
  if(!u)return error(res,401,'Bitte anmelden');
@@ -302,12 +339,15 @@ async function handler(req,res){try{
  }
  if(req.method==='GET'&&url.pathname==='/api/game/events')return json(res,200,{events:gameEvents(u),user:publicUser(q('SELECT * FROM users WHERE id=?',u.id))});
  if(req.method==='POST'&&url.pathname==='/api/game/wheel'){
-  const e=currentEvent(),id=eventId(e),day=new Date().toISOString().slice(0,10);
+  const e=currentEvent(),id=wheelCycle(e),day=new Date().toISOString().slice(0,10);
   if(!e.wheel)return error(res,403,'Glücksrad ist nicht aktiv');
   db.exec('BEGIN IMMEDIATE');try{
-   if(q('SELECT 1 FROM game_wheel WHERE user_id=? AND event_id=? AND award_day=?',u.id,id,day)){db.exec('ROLLBACK');return error(res,409,'Heute bereits gedreht')}
-   const award=[5,10,15,20,30][crypto.randomInt(5)];run('INSERT INTO game_wheel VALUES(?,?,?,?)',u.id,id,day,award);
-   run('UPDATE users SET diamonds=diamonds+? WHERE id=?',award,u.id);db.exec('COMMIT');return json(res,200,{ok:true,diamonds:award,user:publicUser(q('SELECT * FROM users WHERE id=?',u.id))});
+   const cfg=wheelSettings(),used=wheelSpinCount(u.id,id,day);
+   if(used>=cfg.maxSpinsPerDay){db.exec('ROLLBACK');return error(res,409,'Für heute sind alle Glücksrad-Drehungen verbraucht')}
+   const award=wheelPrize(cfg),now=Date.now();
+   run('INSERT INTO game_wheel_spins VALUES(?,?,?,?,?,?)',uid(),u.id,id,day,award,now);
+   run('UPDATE users SET diamonds=diamonds+? WHERE id=?',award,u.id);
+   db.exec('COMMIT');return json(res,200,{ok:true,diamonds:award,spinsUsed:used+1,spinsRemaining:cfg.maxSpinsPerDay-used-1,user:publicUser(q('SELECT * FROM users WHERE id=?',u.id))});
   }catch(err){db.exec('ROLLBACK');throw err}
  }
  if(req.method==='POST'&&url.pathname==='/api/game/season/claim'){
@@ -506,6 +546,7 @@ if(req.method==='GET'&&url.pathname==='/api/admin/shop'){
    run('DELETE FROM game_season_claims WHERE user_id=?',target.id);
    run('DELETE FROM game_event_claims WHERE user_id=?',target.id);
    run('DELETE FROM game_wheel WHERE user_id=?',target.id);
+   run('DELETE FROM game_wheel_spins WHERE user_id=?',target.id);
    run('DELETE FROM game_daily WHERE user_id=?',target.id);
    run('DELETE FROM game_purchases WHERE user_id=?',target.id);
    run('DELETE FROM game_boosters WHERE user_id=?',target.id);
@@ -524,8 +565,23 @@ if(req.method==='GET'&&url.pathname==='/api/admin/shop'){
   const x=message?{id:uid(),title:title||'Mitteilung',message,createdAt:Date.now()}:null;
   run('INSERT INTO settings VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value','announcement',JSON.stringify(x));audit(u.id,'all','announcement');return json(res,200,{ok:true})
  }
+ if(req.method==='GET'&&url.pathname==='/api/admin/wheel')return json(res,200,{config:wheelSettings(),active:!!currentEvent().wheel});
+ if(req.method==='POST'&&url.pathname==='/api/admin/wheel'){
+  const current=wheelSettings(),version=Number(data.version),daily=Number(data.maxSpinsPerDay),prizes=data.prizes;
+  if(!Number.isSafeInteger(version)||version!==current.version)return error(res,409,'Glücksrad wurde auf einem anderen Gerät geändert. Bitte neu laden.');
+  if(!Number.isSafeInteger(daily)||daily<1||daily>5)return error(res,400,'Bitte 1 bis 5 Drehungen pro Tag wählen');
+  if(!Array.isArray(prizes)||prizes.length<2||prizes.length>8||prizes.some(x=>!x||!Number.isSafeInteger(x.diamonds)||x.diamonds<1||x.diamonds>10000||!Number.isSafeInteger(x.weight)||x.weight<1||x.weight>100))return error(res,400,'Bitte 2 bis 8 gültige Gewinne mit 1 bis 100 Gewichtspunkten angeben');
+  const saved={version:current.version+1,maxSpinsPerDay:daily,prizes:prizes.map(x=>({diamonds:x.diamonds,weight:x.weight}))};
+  run('INSERT INTO settings VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value',WHEEL_KEY,JSON.stringify(saved));
+  audit(u.id,'all','wheel_editor',JSON.stringify({version:saved.version,maxSpinsPerDay:daily,prizes:saved.prizes}));
+  return json(res,200,{ok:true,config:saved});
+ }
  if(req.method==='POST'&&url.pathname==='/api/admin/events'){
-  const x={giftDiamonds:Math.max(0,Math.min(10000,Math.trunc(Number(data.giftDiamonds)||0))),doubleXp:!!data.doubleXp,season:!!data.season,wheel:!!data.wheel,updatedAt:Date.now()};run('INSERT INTO settings VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value','events',JSON.stringify(x));audit(u.id,'all','events');return json(res,200,{ok:true,events:x})
+  const previous=currentEvent(),now=Date.now(),enabled=!!data.wheel;
+  // Editing other events must not reset a player's remaining wheel spins.
+  const wheelCycleId=enabled?(previous.wheel?wheelCycle(previous):String(now)):'';
+  const x={giftDiamonds:Math.max(0,Math.min(10000,Math.trunc(Number(data.giftDiamonds)||0))),doubleXp:!!data.doubleXp,season:!!data.season,wheel:enabled,wheelCycleId,updatedAt:now};
+  run('INSERT INTO settings VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value','events',JSON.stringify(x));audit(u.id,'all','events');return json(res,200,{ok:true,events:x})
  }
  error(res,404,'Endpunkt nicht gefunden');
  }catch(e){console.error(e);error(res,e.message==='Eingabe zu groß'||e.message==='Ungültiges JSON'?400:500,e.message==='Eingabe zu groß'||e.message==='Ungültiges JSON'?e.message:'Serverfehler')}}
