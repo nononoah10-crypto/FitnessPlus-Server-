@@ -1391,9 +1391,6 @@ function fpStatsPanel(){
   const labels={minutes:'Minuten',workouts:'Workouts',kcal:'kcal'};
   const bars=range.buckets.map(b=>({label:b.label,value:fpStatsTotals(fpStatsSessions(b.start,b.end))[metric]}));
   const max=Math.max(1,...bars.map(x=>x.value));
-  const favorite=fpStatsTopWorkout(items);
-  const average=sum.workouts?Math.round(sum.minutes/sum.workouts):0;
-  const recordList=records().filter(r=>r.weight>=0).sort((a,b)=>b.weight-a.weight||a.name.localeCompare(b.name,'de-DE')).slice(0,3);
   const canGoBack=offset>-104;
   const now=offset===0;
   return `<section class="fpstats" aria-label="Erweiterte Trainingsstatistiken">
@@ -1417,14 +1414,6 @@ function fpStatsPanel(){
         ${bars.map(b=>`<div class="fpstats-column"><span class="fpstats-value">${b.value||''}</span><div class="fpstats-track"><div class="fpstats-fill" style="height:${b.value?Math.max(5,100*b.value/max):0}%"></div></div><span class="fpstats-label">${safe(b.label)}</span></div>`).join('')}
       </div>
       ${items.length?'':'<p class="sub" style="text-align:center">Hier erscheinen deine Trainings, sobald du welche abgeschlossen hast.</p>'}
-    </div>
-    <div class="card"><b>🔎 Dein Trainingsrückblick</b>
-      <div class="fpstats-recap"><div><span>Abgeschlossene Sätze</span><strong>${sum.sets}</strong></div><div><span>Ø Dauer pro Training</span><strong>${average} Min.</strong></div></div>
-      <p class="sub" style="margin:12px 0 2px">${favorite?'Am häufigsten: <b>'+safe(favorite[0])+'</b> ('+favorite[1]+'×)':'Dein häufigstes Training wird hier angezeigt, sobald du welche gespeichert hast.'}</p>
-    </div>
-    <div class="card"><div class="row"><b>🏋️ Persönliche Bestleistungen</b><button class="btn" type="button" data-action="showRecords">Alle →</button></div>
-      ${recordList.length?recordList.map(x=>`<div class="item"><div class="grow"><b class="small">${safe(x.name)}</b><div class="sub">Bestes dokumentiertes Gewicht</div></div><b>${x.weight.toLocaleString('de-DE')} kg</b></div>`).join(''):'<p class="sub">Trage bei deinen Übungen Gewichte ein und hake Sätze ab, um deine Rekorde zu sehen.</p>'}
-      <button class="btn" type="button" data-action="showStrength" style="margin-top:12px">📈 Kraftentwicklung ansehen →</button>
     </div>
     <p class="sub" style="margin:8px 2px 18px">Nur abgeschlossene, gespeicherte Trainings zählen. Kalorien sind Schätzwerte. Die Daten stammen aus deinem persönlichen Trainingsverlauf.</p>
   </section>`;
