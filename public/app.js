@@ -1115,4 +1115,85 @@ render=function(){
  return result;
 };
 
+
+
+// FitnessPlus: eigenstaendige Geschenkaktionen fuer alle (nicht an Events gekoppelt).
+let fpBroadcastGifts=[];
+let fpBroadcastBusy=false,fpBroadcastClaimBusy=false;
+let fpBroadcastLastSeen='';
+const FP_BROADCAST_SEEN='fp-broadcast-seen-v1';
+async function fpBroadcastRefresh(){
+ if(fpBroadcastBusy)return;
+ fpBroadcastBusy=true;
+ try{
+  const response=await fetch('/api/game/broadcast-gifts',{credentials:'same-origin',cache:'no-store'});
+  if(response.status===401){fpBroadcastGifts=[];fpBroadcastUpdateBar();return;}
+  if(!response.ok)throw Error('Geschenkserver nicht erreichbar');
+  const payload=await response.json();
+  const prev=JSON.stringify(fpBroadcastGifts);
+  fpBroadcastGifts=Array.isArray(payload.gifts)?payload.gifts:[];
+  const pending=fpBroadcastGifts.filter(g=>g.active&&g.eligible&&!g.claimed);
+  if(pending.length){
+   const current=pending[0];
+   if(fpBroadcastLastSeen!==current.id){
+    fpBroadcastLastSeen=current.id;
+    try{if(localStorage.getItem(FP_BROADCAST_SEEN)!==current.id){localStorage.setItem(FP_BROADCAST_SEEN,current.id);toast('💎 Neue Diamanten von FitnessPlus!')}}catch(_e){}
+   }
+  }
+  fpBroadcastUpdateBar();
+  if(s.view==='broadcastgifts'&&prev!==JSON.stringify(fpBroadcastGifts))render();
+ }catch(_e){/* Keep existing list through temporary connection problems. */}
+ finally{fpBroadcastBusy=false}
+}
+function fpBroadcastUpdateBar(){
+ let banner=document.getElementById('fpBroadcastGiftBanner');
+ const gift=fpBroadcastGifts.find(g=>g.active&&g.eligible&&!g.claimed);
+ // Ein laufendes Training wird durch eine Benachrichtigung nicht verdeckt.
+ if(!gift||s.active||s.view==='broadcastgifts'){
+  if(banner)banner.remove();return;
+ }
+ if(!banner){banner=document.createElement('button');banner.id='fpBroadcastGiftBanner';banner.type='button';document.body.append(banner)}
+ banner.textContent='💎 '+gift.diamonds+' Diamanten fuer dich! Jetzt abholen ›';
+ const otherBanner=!!document.getElementById('fpOnlineEventBanner');
+ Object.assign(banner.style,{position:'fixed',left:'12px',right:'12px',bottom:otherBanner?'calc(141px + env(safe-area-inset-bottom, 0px))':'calc(83px + env(safe-area-inset-bottom, 0px))',maxWidth:'520px',margin:'0 auto',zIndex:'1002',width:'calc(100% - 24px)',border:'0',borderRadius:'14px',padding:'12px 14px',background:'#087a67',color:'#fff',fontWeight:'750',fontSize:'13px',boxShadow:'0 6px 20px rgba(0,0,0,.25)',cursor:'pointer'});
+ banner.onclick=()=>{s.tab='home';s.view='broadcastgifts';render()};
+}
+function fpBroadcastView(){
+ let html=hdr('FITNESSPLUS DIAMANTEN','Diamanten fuer dich.')+'<button class="btn" data-fpbroadcastback="1">← Zurueck</button>';
+ if(!fpBroadcastGifts.length)return html+'<div class="card"><b>Zurzeit keine Diamanten-Aktionen</b><p class="sub">Neue Diamanten-Aktionen aus der Admin-App erscheinen hier.</p><button class="btn" data-fpbroadcastrefresh="1">Aktualisieren</button></div>';
+ return html+fpBroadcastGifts.map(g=>'<div class="card"><div style="font-size:36px">🎁</div><b>'+safe(g.title)+'</b><p class="sub">'+safe(g.message||'Diamanten von FitnessPlus')+'</p><div class="huge">'+Number(g.diamonds)+' 💎</div><button class="primary" data-fpbroadcastclaim="'+safe(g.id)+'" '+(g.claimed||!g.active?'disabled':'')+'>'+(g.claimed?'✓ Bereits abgeholt':g.active?'💎 Diamanten abholen':'Nicht mehr verfuegbar')+'</button></div>').join('')+'<button class="btn" data-fpbroadcastrefresh="1">↻ Aktualisieren</button>';
+}
+const fpBroadcastPreviousHome=home;
+home=function(){
+ const count=fpBroadcastGifts.filter(g=>g.active&&!g.claimed).length;
+ return fpBroadcastPreviousHome()+(fpBroadcastGifts.length?'<div class="card"><div class="row"><div><b>💎 Diamanten fuer dich</b><div class="sub">'+(count?count+' Diamanten-Aktion'+(count===1?'':'en')+' bereit zum Abholen':'Alle aktuellen Diamanten abgeholt')+'</div></div><button class="btn" data-fpbroadcastopen="1">Ansehen →</button></div></div>':'');
+};
+const fpBroadcastPreviousRender=render;
+render=function(){fpBroadcastPreviousRender();if(s.view==='broadcastgifts')$('#page').innerHTML=fpBroadcastView();fpBroadcastUpdateBar()};
+document.addEventListener('click',async e=>{
+ const btn=e.target.closest('button');if(!btn)return;
+ if(btn.dataset.fpbroadcastopen!==undefined){e.preventDefault();e.stopImmediatePropagation();s.tab='home';s.view='broadcastgifts';render();fpBroadcastRefresh();return}
+ if(btn.dataset.fpbroadcastback!==undefined){e.preventDefault();e.stopImmediatePropagation();s.view='';render();return}
+ if(btn.dataset.fpbroadcastrefresh!==undefined){e.preventDefault();e.stopImmediatePropagation();await fpBroadcastRefresh();render();return}
+ if(btn.dataset.fpbroadcastclaim===undefined)return;
+ e.preventDefault();e.stopImmediatePropagation();
+ if(fpBroadcastClaimBusy)return;
+ fpBroadcastClaimBusy=true;btn.disabled=true;
+ try{
+  const r=await fetch('/api/game/broadcast-gifts/claim',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({giftId:btn.dataset.fpbroadcastclaim})});
+  const result=await r.json().catch(()=>({}));
+  if(!r.ok)throw Error(result.error||'Geschenk konnte nicht abgeholt werden');
+  s.diamonds=result.user.diamonds;
+  // Der Server ist fuer Guthaben und Einmal-Einloesung verantwortlich.
+  await fpBroadcastRefresh();
+  window.FP76Refresh?.();
+  render();toast('🎉 +'+result.diamonds+' 💎 von FitnessPlus erhalten!');
+ }catch(err){toast(err.message||'Geschenk konnte nicht abgeholt werden');await fpBroadcastRefresh();render()}
+ finally{fpBroadcastClaimBusy=false}
+},true);
+setTimeout(fpBroadcastRefresh,1800);
+setInterval(fpBroadcastRefresh,45000);
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)fpBroadcastRefresh()});
+window.addEventListener('focus',fpBroadcastRefresh);
+
 })();
