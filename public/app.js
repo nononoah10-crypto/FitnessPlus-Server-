@@ -1471,4 +1471,22 @@ document.addEventListener('click',e=>{
   }
 },true);
 
+
+// FP_WEEKLY_CARD_REMOVED_20261014: Hide exactly the legacy weekly totals card.
+// Other progress cards, charts, and the workout history are unchanged.
+const fpRenderWithoutWeeklyTotalsCard = render;
+render = function(){
+  const result = fpRenderWithoutWeeklyTotalsCard();
+  if(s.tab === 'progress' && !['records','strength','friends','levels'].includes(s.view)){
+    const page = document.querySelector('#page');
+    if(page){
+      for(const card of page.querySelectorAll('.card')){
+        const heading = card.querySelector(':scope > b, :scope > h2, :scope > .row > b, :scope > .row > h2');
+        if(heading && heading.textContent.trim() === 'Wochen\u00fcbersicht') card.remove();
+      }
+    }
+  }
+  return result;
+};
+
 })();
