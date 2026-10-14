@@ -888,6 +888,26 @@ setInterval(fpBoosterBanner,1000);
 // Aufgaben bleiben erhalten; nur die Haken werden bei einem neuen Kalendertag geloescht.
 s.dailyTodos=Array.isArray(s.dailyTodos)?s.dailyTodos.filter(x=>x&&typeof x.text==='string').slice(0,100).map(x=>({id:String(x.id||uid()),text:String(x.text).slice(0,100),done:!!x.done})):[];
 s.dailyTodoDate=/^\d{4}-\d{2}-\d{2}$/.test(String(s.dailyTodoDate||''))?s.dailyTodoDate:day();
+// Jede abgehakte Aufgabe wird mit Datum gespeichert, auch nach dem Tageswechsel.
+// Trainingshistorie, Kalorien und Level bleiben davon unberuehrt.
+s.dailyTodoHistory=Array.isArray(s.dailyTodoHistory)?s.dailyTodoHistory.filter(x=>x&&typeof x.taskId==='string'&&typeof x.text==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(String(x.day||''))).map(x=>({taskId:x.taskId,text:x.text.slice(0,100),day:x.day})) : [];
+// Bereits heute abgehakte Aufgaben aus der vorigen App-Version uebernehmen.
+if(s.dailyTodoDate===day()){
+  let migrated=false;
+  for(const task of s.dailyTodos){
+    if(task.done&&!s.dailyTodoHistory.some(x=>x.taskId===task.id&&x.day===day())){
+      s.dailyTodoHistory.push({taskId:task.id,text:task.text,day:day()});
+      migrated=true;
+    }
+  }
+  if(migrated)save();
+}
+function fpTodoRecord(task,completed){
+  const today=day();
+  s.dailyTodoHistory=s.dailyTodoHistory.filter(x=>!(x.taskId===task.id&&x.day===today));
+  if(completed)s.dailyTodoHistory.push({taskId:task.id,text:task.text,day:today});
+}
+
 function fpTodoNewDay(){
   const today=day();
   if(s.dailyTodoDate===today)return false;
@@ -929,7 +949,7 @@ document.addEventListener('change',e=>{
   e.stopImmediatePropagation();fpTodoNewDay();
   const task=s.dailyTodos.find(x=>x.id===input.dataset.todocheck);
   if(!task)return;
-  task.done=!!input.checked;save();render();
+  task.done=!!input.checked;fpTodoRecord(task,task.done);save();render();
 },true);
 document.addEventListener('click',e=>{
   const btn=e.target.closest('button[data-tododelete]');if(!btn)return;
@@ -937,6 +957,29 @@ document.addEventListener('click',e=>{
   s.dailyTodos=s.dailyTodos.filter(x=>x.id!==btn.dataset.tododelete);
   save();render();toast('Aufgabe gelöscht');
 },true);
+
+// Erledigte To-dos werden im Verlauf der ausgewaehlten Trainingswoche angezeigt.
+// Sie werden NICHT zu echten Trainings umgewandelt (keine Minuten, kcal oder XP).
+const fpProgressBeforeTodoHistory=progress;
+progress=function(){
+  const html=fpProgressBeforeTodoHistory();
+  if(['records','strength','friends','levels'].includes(s.view))return html;
+  const selectedWeek=weekStats(Math.max(-104,Math.min(0,Number(s.weekOffset)||0)));
+  const completed=(s.dailyTodoHistory||[])
+    .filter(x=>x.day>=selectedWeek.from&&x.day<=selectedWeek.to)
+    .sort((a,b)=>b.day.localeCompare(a.day)||a.text.localeCompare(b.text,'de-DE'));
+  if(!completed.length)return html;
+  const rows=`<div class="row" style="margin:16px 0 7px"><b>✅ Erledigte To-dos</b><span class="sub">${completed.length} erledigt</span></div>`+
+    completed.map(x=>{
+      const date=new Date(x.day+'T12:00:00').toLocaleDateString('de-DE',{weekday:'short',day:'numeric',month:'long'});
+      return `<div class="item"><div class="symbol" style="background:#d8f5e9;color:#087b5c">✓</div><div class="grow"><b class="small">${safe(x.text)}</b><div class="sub">${safe(date)} · To-do erledigt</div></div><span class="sub">✓</span></div>`;
+    }).join('');
+  // Der letzte Card-Container dieser Ansicht enthaelt die abgeschlossenen Trainings.
+  // Dort fuegen wir den separaten To-do-Bereich ein.
+  const end=html.lastIndexOf('</div>');
+  return end>=0?html.slice(0,end)+rows+html.slice(end):html+`<div class="card">${rows}</div>`;
+};
+
 // Bei geoeffneter App auch ohne Seitenwechsel den Tageswechsel bemerken.
 setInterval(()=>{if(fpTodoNewDay()&&s.tab==='train')render()},60000);
 document.addEventListener('visibilitychange',()=>{if(!document.hidden&&fpTodoNewDay()&&s.tab==='train')render()});
