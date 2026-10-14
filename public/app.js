@@ -625,7 +625,8 @@ document.addEventListener('visibilitychange',()=>{if(!document.hidden)checkAnnou
 // FitnessPlus: events are published for every user by the admin panel and fetched
 // from the SAME online server that stores them. No independent events.json file.
 let liveEvents={id:'',active:false}, eventLoading=false;
-let fpEventAccount={authenticated:false,wheelUsed:false,giftClaimed:false,progress:0,tiers:[]};
+let fpWheelConfig={maxSpinsPerDay:1,prizes:[{diamonds:5,weight:40},{diamonds:10,weight:25},{diamonds:15,weight:18},{diamonds:20,weight:12},{diamonds:30,weight:5}]};
+let fpEventAccount={authenticated:false,wheelUsed:false,wheelSpinsUsed:0,wheelSpinsRemaining:1,giftClaimed:false,progress:0,tiers:[]};
 let fpEventBusy=false;
 const FP_EVENT_SEEN='fitnessplus-last-online-event-v1';
 const fpEventEnabled=x=>!!(x&&(x.wheel||x.season||x.doubleXp||Number(x.giftDiamonds)>0));
@@ -646,6 +647,7 @@ async function refreshEvents(){
   const r=await fetch('/api/events',{credentials:'same-origin',cache:'no-store'});
   if(!r.ok)throw Error('Event-Server nicht erreichbar');
   const response=await r.json();const candidate=response.events||{};
+  if(response.wheelConfig&&Array.isArray(response.wheelConfig.prizes))fpWheelConfig=response.wheelConfig;
   const previousId=activeEvent()?.updatedAt||0;
   liveEvents=validEvent(candidate)?candidate:{id:'',active:false};
   const e=activeEvent();
@@ -661,8 +663,8 @@ async function refreshEvents(){
   try{
    const status=await fetch('/api/game/events',{credentials:'same-origin',cache:'no-store'});
    if(status.ok){const details=(await status.json()).events||{};
-    fpEventAccount={authenticated:true,wheelUsed:!!details.wheelUsed,giftClaimed:!!details.giftClaimed,progress:Number(details.progress)||0,tiers:Array.isArray(details.tiers)?details.tiers:[]};
-   }else if(status.status===401){fpEventAccount={authenticated:false,wheelUsed:false,giftClaimed:false,progress:0,tiers:[]}}
+    fpEventAccount={authenticated:true,wheelUsed:!!details.wheelUsed,wheelSpinsUsed:Number(details.wheelSpinsUsed)||0,wheelSpinsRemaining:Number.isInteger(details.wheelSpinsRemaining)?details.wheelSpinsRemaining:details.wheelUsed?0:1,giftClaimed:!!details.giftClaimed,progress:Number(details.progress)||0,tiers:Array.isArray(details.tiers)?details.tiers:[]};
+   }else if(status.status===401){fpEventAccount={authenticated:false,wheelUsed:false,wheelSpinsUsed:0,wheelSpinsRemaining:fpWheelConfig.maxSpinsPerDay,giftClaimed:false,progress:0,tiers:[]}}
   }catch(_e){/* Keep the most recent account status for temporary network errors. */}
   if(s.view==='events'||previousId!==(e?.updatedAt||0))render();
  }catch(err){
@@ -682,8 +684,12 @@ function eventView(){
  if(!e)return html+'<div class="card"><b>Gerade kein Event aktiv</b><p class="sub">Starte im Admin-Panel ein Event. Es erscheint dann hier für alle Nutzer.</p><button class="btn" data-eventrefresh="1">Aktualisieren</button></div>';
  html+='<div class="card"><div style="font-size:35px">🎉</div><b>Event läuft!</b><p class="sub">'+safe(fpEventName(e))+'</p></div>';
  if(e.doubleXp)html+='<div class="card"><b>⚡ Doppel-XP aktiv</b><p class="sub">Online bestätigte Übungen geben doppelten Fortschritt, sofern kein anderer Booster aktiv ist.</p></div>';
- if(e.wheel){const used=fpEventAccount.wheelUsed;
-  html+='<div class="card"><div style="font-size:44px;text-align:center">🎡</div><b>Dein Glücksrad</b><p class="sub">Einmal pro Tag drehen und 5, 10, 15, 20 oder 30 Diamanten gewinnen.</p><button class="primary" data-eventspin="1" '+(used?'disabled':'')+'>'+(used?'✓ Heute schon eingelöst':fpEventAccount.authenticated?'🎡 Glücksrad drehen und einlösen':'🔑 Anmelden und Glücksrad einlösen')+'</button></div>';
+ if(e.wheel){
+  const used=fpEventAccount.authenticated&&fpEventAccount.wheelSpinsRemaining<=0;
+  const prizes=fpWheelConfig.prizes||[],total=prizes.reduce((n,p)=>n+(Number(p.weight)||0),0);
+  const chanceText=prizes.map(p=>Number(p.diamonds)+' 💎 ('+(total?Math.round(100*Number(p.weight)/total):0)+' %)').join(' · ');
+  const spinsLeft=fpEventAccount.authenticated?fpEventAccount.wheelSpinsRemaining:fpWheelConfig.maxSpinsPerDay;
+  html+='<div class="card"><div style="font-size:44px;text-align:center">🎡</div><b>Dein Glücksrad</b><p class="sub">Heute noch '+spinsLeft+' von '+fpWheelConfig.maxSpinsPerDay+' Drehungen übrig. Neuer Tag ab 00:00 Uhr UTC.</p><p class="sub">Mögliche Gewinne: '+safe(chanceText)+'</p><button class="primary" data-eventspin="1" '+(used?'disabled':'')+'>'+(used?'✓ Für heute alle Drehungen verbraucht':fpEventAccount.authenticated?'🎡 Glücksrad drehen und einlösen':'🔑 Anmelden und Glücksrad einlösen')+'</button></div>';
  }
  const gift=Math.floor(Number(e.giftDiamonds)||0);
  if(gift>0)html+='<div class="card"><b>🎁 Geschenk für alle</b><p class="sub">'+gift+' 💎 einmalig pro Event abholen.</p><button class="primary" data-eventgift="1" '+(fpEventAccount.giftClaimed?'disabled':'')+'>'+(fpEventAccount.giftClaimed?'✓ Geschenk abgeholt':fpEventAccount.authenticated?'🎁 '+gift+' Diamanten einlösen':'🔑 Anmelden und Geschenk einlösen')+'</button></div>';
@@ -711,7 +717,7 @@ document.addEventListener('click',async e=>{
  if(fpEventBusy)return;
  if(!fpEventAccount.authenticated){fpEventLogin();return}
  const active=activeEvent();if(!active){toast('Dieses Event ist nicht mehr aktiv.');refreshEvents();return}
- if(isWheel&&(!active.wheel||fpEventAccount.wheelUsed))return;
+ if(isWheel&&(!active.wheel||fpEventAccount.wheelSpinsRemaining<=0))return;
  if(isGift&&(!(Number(active.giftDiamonds)>0)||fpEventAccount.giftClaimed))return;
  if(isTier&&!active.season)return;
  fpEventBusy=true;b.disabled=true;
