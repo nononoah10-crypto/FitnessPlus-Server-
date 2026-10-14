@@ -1408,13 +1408,6 @@ function fpStatsPanel(){
       </div>
       <p class="fpstats-comparison">${safe(fpStatsDelta(sum.minutes,before.minutes))}</p>
     </div>
-    <div class="card"><div class="row"><b>📊 Trainingsdiagramm</b><span class="sub">${safe(labels[metric])}</span></div>
-      <div class="fpstats-metrics" role="group" aria-label="Diagramm auswählen">${[['minutes','Minuten'],['workouts','Trainings'],['kcal','Kalorien']].map(([key,label])=>`<button type="button" class="fpstats-metric ${metric===key?'fpstats-selected':''}" data-fpstat-metric="${key}" aria-pressed="${metric===key}">${label}</button>`).join('')}</div>
-      <div class="fpstats-chart" role="img" aria-label="${safe(labels[metric])} für ${safe(range.caption)}: ${bars.map(b=>b.label+' '+b.value).join(', ')}">
-        ${bars.map(b=>`<div class="fpstats-column"><span class="fpstats-value">${b.value||''}</span><div class="fpstats-track"><div class="fpstats-fill" style="height:${b.value?Math.max(5,100*b.value/max):0}%"></div></div><span class="fpstats-label">${safe(b.label)}</span></div>`).join('')}
-      </div>
-      ${items.length?'':'<p class="sub" style="text-align:center;margin:10px 0 0">Sobald du trainiert hast, erscheint hier dein Fortschritt.</p>'}
-    </div>
     <p class="sub" style="margin:8px 2px 18px">Nur abgeschlossene, gespeicherte Trainings zählen. Kalorien sind Schätzwerte. Die Daten stammen aus deinem persönlichen Trainingsverlauf.</p>
   </section>`;
 }
@@ -1443,24 +1436,15 @@ function fpStatsStyles(){
 fpStatsStyles();
 const fpProgressBeforeExtendedStatistics=progress;
 progress=function(){
-  // Die vier eigenstaendigen Unterseiten (Freunde, Level, Kraft, Rekorde) bleiben bestehen.
+  // Freunde, Level, Kraftentwicklung und persoenliche Rekorde bleiben auf ihren Unterseiten.
   if(['records','strength','friends','levels'].includes(s.view)){
     return fpProgressBeforeExtendedStatistics();
   }
-  // Direkt beim ersten Oeffnen ist das neue Dashboard der erste sichtbare Inhalt.
-  // NICHT die alte Wochenansicht anhaengen (sie erzeugte die doppelte Anzeige).
-  let page=fpStatsPanel();
-  page+=`<div class="card"><div class="row"><div><b>🏆 Level ${levelNumber()}</b><div class="sub">Vergleiche dich mit deinen Freunden</div></div><button class="btn" data-action="openFriends">Freundesliste →</button></div></div>`;
-  page+=`<div class="card"><div class="row"><b>💪 Weitere Entwicklungen</b></div><div class="chips" style="margin-top:10px"><button class="btn" data-action="showStrength">Kraftentwicklung →</button><button class="btn" data-action="showRecords">Meine Bestleistungen →</button></div></div>`;
-  // Die bisherige erledigte Tagesliste bleibt im Verlauf erreichbar.
-  const range=fpStatsRange(s.fpStatsPeriod,Math.max(-104,Math.min(0,s.fpStatsOffset)));
-  const completed=(Array.isArray(s.dailyTodoHistory)?s.dailyTodoHistory:[])
-    .filter(t=>t&&typeof t.text==='string'&&typeof t.day==='string'&&t.day>=range.from&&t.day<=range.to)
-    .sort((a,b)=>b.day.localeCompare(a.day)||a.text.localeCompare(b.text,'de-DE'));
-  if(completed.length){
-    page+=`<div class="card"><b>✅ Erledigte To-dos</b><div class="sub" style="margin:8px 0">${completed.length} im ausgewählten Zeitraum</div>${completed.map(t=>`<div class="item"><div class="symbol">✓</div><div class="grow"><b class="small">${safe(t.text)}</b><div class="sub">${safe(t.day)}</div></div></div>`).join('')}</div>`;
-  }
-  return page;
+  // Die neuen Trainingsstatistiken erscheinen sofort, ohne zusaetzliches Diagramm.
+  // Anschliessend folgt wieder die originale Rubrik "Deine Trainingswochen."
+  // mit Wochennavigation, Balken, Kraftentwicklung, Bestleistungen und Trainingsliste.
+  // Die bereits entfernte "Wochenuebersicht" ist nicht Teil der alten Ansicht.
+  return fpStatsPanel()+fpProgressBeforeExtendedStatistics();
 };
 document.addEventListener('click',e=>{
   const button=e.target.closest('button');if(!button)return;
