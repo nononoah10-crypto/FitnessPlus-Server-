@@ -27,6 +27,29 @@ CREATE TABLE IF NOT EXISTS game_event_claims (user_id TEXT NOT NULL REFERENCES u
 CREATE TABLE IF NOT EXISTS game_gift_codes (id TEXT PRIMARY KEY, code_hash TEXT NOT NULL UNIQUE, sender_id TEXT NOT NULL REFERENCES users(id), recipient_id TEXT REFERENCES users(id), item TEXT NOT NULL, created_at INTEGER NOT NULL, redeemed_at INTEGER, redeemed_by TEXT REFERENCES users(id));`);
 db.exec(`CREATE TABLE IF NOT EXISTS direct_gifts (id TEXT PRIMARY KEY, sender_id TEXT NOT NULL REFERENCES users(id), recipient_id TEXT NOT NULL REFERENCES users(id), item TEXT NOT NULL, created_at INTEGER NOT NULL, claimed_at INTEGER);`);
 db.exec(`CREATE TABLE IF NOT EXISTS direct_diamond_gifts (id TEXT PRIMARY KEY, sender_id TEXT NOT NULL REFERENCES users(id), recipient_id TEXT NOT NULL REFERENCES users(id), amount INTEGER NOT NULL CHECK(amount>0), created_at INTEGER NOT NULL);`);
+
+// Individuelle Geschenk-Aktionen fuer alle bereits registrierten Spieler.
+// Einmalig pro Benutzer/Kampagne, serverseitig und atomar gebucht.
+db.exec(`CREATE TABLE IF NOT EXISTS broadcast_gifts (
+ id TEXT PRIMARY KEY, title TEXT NOT NULL, message TEXT NOT NULL,
+ diamonds INTEGER NOT NULL CHECK(diamonds BETWEEN 1 AND 10000),
+ created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL,
+ active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1)), created_by TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS broadcast_gift_claims (
+ gift_id TEXT NOT NULL REFERENCES broadcast_gifts(id) ON DELETE CASCADE,
+ user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+ claimed_at INTEGER NOT NULL, PRIMARY KEY(gift_id,user_id)
+);`);
+function broadcastSummary(g,userId){
+ const now=Date.now();
+ const eligible=!userId||!!q("SELECT 1 FROM users WHERE id=? AND role='user' AND created_at<=?",userId,g.created_at);
+ const claimed=!!(userId&&q('SELECT 1 FROM broadcast_gift_claims WHERE gift_id=? AND user_id=?',g.id,userId));
+ return {id:g.id,title:g.title,message:g.message,diamonds:g.diamonds,
+  createdAt:g.created_at,expiresAt:g.expires_at,active:!!g.active&&g.expires_at>now,
+  eligible,claimed};
+}
+
 function currentEvent(){return JSON.parse(q('SELECT value FROM settings WHERE key=?','events')?.value||'{}')}
 function eventId(e){return String(e.updatedAt||0)}
 function seasonTiers(){return [{at:3,diamonds:10},{at:10,diamonds:25},{at:25,diamonds:60},{at:50,diamonds:120}]}
@@ -163,6 +186,28 @@ async function handler(req,res){try{
   else{try{run('INSERT INTO cloud_state(user_id,revision,payload,updated_at) VALUES(?,?,?,?)',u.id,next,payload,Date.now())}catch{return error(res,409,'Konflikt')}}
   return json(res,200,{ok:true,revision:next});
  }
+  // Aktive Geschenkaktionen: nur fuer Spieler, die vor dem Start registriert waren.
+  if(req.method==='GET'&&url.pathname==='/api/game/broadcast-gifts'){
+   const list=all('SELECT * FROM broadcast_gifts WHERE active=1 AND expires_at>? AND created_at>=? ORDER BY created_at DESC LIMIT 30',Date.now(),0)
+    .map(g=>broadcastSummary(g,u.id)).filter(g=>g.eligible);
+   return json(res,200,{gifts:list});
+  }
+  if(req.method==='POST'&&url.pathname==='/api/game/broadcast-gifts/claim'){
+   const id=String(data.giftId||'');
+   if(!/^[a-f0-9-]{36}$/i.test(id))return error(res,400,'Ungueltige Geschenk-ID');
+   db.exec('BEGIN IMMEDIATE');try{
+    const gift=q('SELECT * FROM broadcast_gifts WHERE id=?',id);
+    const receiver=q('SELECT id,created_at,role FROM users WHERE id=?',u.id);
+    if(!gift||!gift.active||gift.expires_at<=Date.now()||!receiver||receiver.role!=='user'||receiver.created_at>gift.created_at){
+     db.exec('ROLLBACK');return error(res,403,'Geschenk nicht verfuegbar');
+    }
+    const claimed=run('INSERT OR IGNORE INTO broadcast_gift_claims(gift_id,user_id,claimed_at) VALUES(?,?,?)',gift.id,u.id,Date.now());
+    if(!claimed.changes){db.exec('ROLLBACK');return error(res,409,'Geschenk bereits abgeholt');}
+    run('UPDATE users SET diamonds=diamonds+? WHERE id=?',gift.diamonds,u.id);
+    db.exec('COMMIT');
+    return json(res,200,{ok:true,diamonds:gift.diamonds,title:gift.title,user:publicUser(q('SELECT * FROM users WHERE id=?',u.id))});
+   }catch(err){db.exec('ROLLBACK');throw err;}
+  }
  if(req.method==='GET'&&url.pathname==='/api/game'){
   const b=q('SELECT multiplier,uses FROM game_boosters WHERE user_id=?',u.id);
   return json(res,200,{user:publicUser(q('SELECT * FROM users WHERE id=?',u.id)),booster:b||{multiplier:1,uses:0},chests:all('SELECT id,created_at FROM game_chests WHERE user_id=? AND opened_at IS NULL ORDER BY created_at',u.id),history:all('SELECT rarity,diamonds,opened_at FROM game_chests WHERE user_id=? AND opened_at IS NOT NULL ORDER BY opened_at DESC LIMIT 50',u.id)});
@@ -335,6 +380,36 @@ async function handler(req,res){try{
  if(req.method==='GET'&&url.pathname==='/api/announcements')return json(res,200,{message:JSON.parse(q('SELECT value FROM settings WHERE key=?','announcement')?.value||'null')});
  if(req.method==='GET'&&url.pathname==='/api/events')return json(res,200,{events:JSON.parse(q('SELECT value FROM settings WHERE key=?','events')?.value||'{}')});
  if(u.role!=='admin')return error(res,403,'Nur Administrator');
+  // Nur Passkey-Admin oder ein authentifiziertes Admin-Konto darf versenden.
+  if(req.method==='GET'&&url.pathname==='/api/admin/broadcast-gifts'){
+   const gifts=all(`SELECT g.*, (SELECT COUNT(*) FROM broadcast_gift_claims c WHERE c.gift_id=g.id) AS claimed_count,
+    (SELECT COUNT(*) FROM users p WHERE p.role='user' AND p.created_at<=g.created_at) AS eligible_count
+    FROM broadcast_gifts g ORDER BY g.created_at DESC LIMIT 30`)
+    .map(g=>({...broadcastSummary(g),claimedCount:g.claimed_count,eligibleCount:g.eligible_count}));
+   return json(res,200,{gifts});
+  }
+  if(req.method==='POST'&&url.pathname==='/api/admin/broadcast-gifts'){
+   const title=String(data.title||'').trim(),message=String(data.message||'').trim();
+   const diamonds=Number(data.diamonds),days=Number(data.days);
+   if(!title||title.length>80||message.length>300||!Number.isSafeInteger(diamonds)||diamonds<1||diamonds>10000||![1,3,7,30].includes(days))
+    return error(res,400,'Titel, Diamanten (1-10000) und Laufzeit (1/3/7/30 Tage) pruefen');
+   const now=Date.now();
+   if(q('SELECT COUNT(*) n FROM broadcast_gifts WHERE active=1 AND expires_at>?',now).n>=10)
+    return error(res,409,'Maximal zehn aktive Geschenkaktionen. Bitte zuerst eine beenden.');
+   const id=uid();
+   run('INSERT INTO broadcast_gifts(id,title,message,diamonds,created_at,expires_at,active,created_by) VALUES(?,?,?,?,?,?,1,?)',
+    id,title,message,diamonds,now,now+days*86400000,u.id);
+   audit(u.id,'all','broadcast_gift_created',id+':'+diamonds);
+   return json(res,200,{ok:true,giftId:id,diamonds,title});
+  }
+  if(req.method==='POST'&&url.pathname==='/api/admin/broadcast-gifts/close'){
+   const id=String(data.giftId||'');
+   if(!/^[a-f0-9-]{36}$/i.test(id))return error(res,400,'Ungueltige Geschenk-ID');
+   const update=run('UPDATE broadcast_gifts SET active=0 WHERE id=? AND active=1',id);
+   if(!update.changes)return error(res,404,'Aktive Geschenkaktion nicht gefunden');
+   audit(u.id,'all','broadcast_gift_closed',id);
+   return json(res,200,{ok:true});
+  }
  if(req.method==='GET'&&url.pathname==='/api/admin/users')return json(res,200,{users:all('SELECT id,username AS name,diamonds,xp,role,1+CAST(xp/3 AS INTEGER) AS level FROM users ORDER BY username LIMIT 500')});
  if(req.method==='POST'&&url.pathname==='/api/admin/diamonds'){
   const v=Number(data.amount),target=q('SELECT * FROM users WHERE id=?',String(data.userId||''));if(!target||!Number.isSafeInteger(v)||v<1||v>100000)return error(res,400,'Ungültiger Empfänger/Betrag');
