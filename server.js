@@ -136,6 +136,7 @@ async function handler(req,res){try{
   const u=typeof data.name==='string'?q('SELECT * FROM users WHERE username=?',data.name):null;
   if(!u||typeof data.password!=='string'||!authPass(u,data.password))return error(res,401,'Login fehlgeschlagen');return startSession(res,u)
  }
+ if(req.method==='GET'&&url.pathname==='/api/events')return json(res,200,{events:currentEvent()});
  const passkeyAdmin=passkeySession(req);
  const u=session(req)||(passkeyAdmin&&(url.pathname.startsWith('/api/admin/')||url.pathname==='/api/events')?{id:'passkey-admin',role:'admin'}:null);
  if(!u)return error(res,401,'Bitte anmelden');
