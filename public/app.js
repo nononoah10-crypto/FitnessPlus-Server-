@@ -1325,4 +1325,161 @@ setInterval(fpBroadcastRefresh,45000);
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)fpBroadcastRefresh()});
 window.addEventListener('focus',fpBroadcastRefresh);
 
+
+// FitnessPlus 8.1: Erweiterte Trainingsstatistiken direkt im Reiter "Verlauf".
+// Ausschliesslich gespeicherte, abgeschlossene Trainings werden ausgewertet.
+// Alte Wochenansicht, To-do-Verlauf, Freundeslisten und Rekorde bleiben bestehen.
+s.fpStatsPeriod=['week','month','year'].includes(s.fpStatsPeriod)?s.fpStatsPeriod:'month';
+s.fpStatsMetric=['minutes','workouts','kcal'].includes(s.fpStatsMetric)?s.fpStatsMetric:'minutes';
+s.fpStatsOffset=Number.isSafeInteger(s.fpStatsOffset)?Math.max(-104,Math.min(0,s.fpStatsOffset)):0;
+
+function fpStatsDate(d){return dkey(d)}
+function fpStatsMove(d,days){const x=new Date(d.getFullYear(),d.getMonth(),d.getDate(),12);x.setDate(x.getDate()+days);return x}
+function fpStatsRange(period,offset){
+  const today=new Date();today.setHours(12,0,0,0);
+  let start,end,caption,buckets=[];
+  if(period==='year'){
+    start=new Date(today.getFullYear()+offset,0,1,12);
+    end=new Date(start.getFullYear(),11,31,12);
+    caption=String(start.getFullYear());
+    buckets=Array.from({length:12},(_,i)=>({start:fpStatsDate(new Date(start.getFullYear(),i,1,12)),end:fpStatsDate(new Date(start.getFullYear(),i+1,0,12)),label:new Date(start.getFullYear(),i,1,12).toLocaleDateString('de-DE',{month:'short'}).replace('.','')}));
+  }else if(period==='week'){
+    const monday=fpStatsMove(today,-(today.getDay()+6)%7+offset*7);
+    start=monday;end=fpStatsMove(start,6);
+    caption=start.toLocaleDateString('de-DE',{day:'numeric',month:'short'})+' bis '+end.toLocaleDateString('de-DE',{day:'numeric',month:'short',year:'numeric'});
+    buckets=Array.from({length:7},(_,i)=>{const d=fpStatsMove(start,i);return {start:fpStatsDate(d),end:fpStatsDate(d),label:['Mo','Di','Mi','Do','Fr','Sa','So'][i]}});
+  }else{
+    start=new Date(today.getFullYear(),today.getMonth()+offset,1,12);
+    end=new Date(start.getFullYear(),start.getMonth()+1,0,12);
+    caption=start.toLocaleDateString('de-DE',{month:'long',year:'numeric'});
+    const count=end.getDate();
+    for(let i=1;i<=count;i+=7){
+      const last=Math.min(i+6,count);
+      buckets.push({start:fpStatsDate(new Date(start.getFullYear(),start.getMonth(),i,12)),end:fpStatsDate(new Date(start.getFullYear(),start.getMonth(),last,12)),label:i===last?String(i):i+'–'+last});
+    }
+  }
+  return {from:fpStatsDate(start),to:fpStatsDate(end),caption,buckets};
+}
+function fpStatsSessions(from,to){
+  return (Array.isArray(s.history)?s.history:[]).filter(h=>h&&typeof h.day==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(h.day)&&h.day>=from&&h.day<=to);
+}
+function fpStatsValue(value,maximum){const n=Number(value);return Number.isFinite(n)&&n>=0?Math.min(n,maximum):0}
+function fpStatsTotals(items){
+  return {
+    workouts:items.length,
+    days:new Set(items.map(h=>h.day)).size,
+    minutes:Math.round(items.reduce((n,h)=>n+fpStatsValue(h.min,1440),0)),
+    kcal:Math.round(items.reduce((n,h)=>n+fpStatsValue(h.kcal,10000),0)),
+    sets:items.reduce((n,h)=>n+(Array.isArray(h.exercises)?h.exercises.reduce((t,e)=>t+(Array.isArray(e?.completedSets)?e.completedSets.filter(x=>x&&x.done).length:0),0):0),0)
+  };
+}
+function fpStatsDelta(value,before){
+  if(!before)return value?'Zum ersten Mal in diesem Zeitraum':'Noch kein Vergleich';
+  const change=Math.round((value-before)*100/before);
+  return (change>0?'+':'')+change+' % gegenüber dem vorherigen Zeitraum';
+}
+function fpStatsTopWorkout(items){
+  const amounts=new Map();
+  for(const h of items){const title=String(h.name||find(h.workoutId)?.name||'Training').slice(0,90);amounts.set(title,(amounts.get(title)||0)+1)}
+  return [...amounts].sort((a,b)=>b[1]-a[1]||a[0].localeCompare(b[0],'de-DE'))[0]||null;
+}
+function fpStatsPanel(){
+  const period=s.fpStatsPeriod,offset=Math.max(-104,Math.min(0,s.fpStatsOffset));
+  const range=fpStatsRange(period,offset),prior=fpStatsRange(period,offset-1);
+  const items=fpStatsSessions(range.from,range.to),sum=fpStatsTotals(items),before=fpStatsTotals(fpStatsSessions(prior.from,prior.to));
+  const metric=s.fpStatsMetric;
+  const labels={minutes:'Minuten',workouts:'Workouts',kcal:'kcal'};
+  const bars=range.buckets.map(b=>({label:b.label,value:fpStatsTotals(fpStatsSessions(b.start,b.end))[metric]}));
+  const max=Math.max(1,...bars.map(x=>x.value));
+  const favorite=fpStatsTopWorkout(items);
+  const average=sum.workouts?Math.round(sum.minutes/sum.workouts):0;
+  const recordList=records().filter(r=>r.weight>=0).sort((a,b)=>b.weight-a.weight||a.name.localeCompare(b.name,'de-DE')).slice(0,3);
+  const canGoBack=offset>-104;
+  const now=offset===0;
+  return `<section class="fpstats" aria-label="Erweiterte Trainingsstatistiken">
+    <div class="card fpstats-main">
+      <div class="row"><div><div class="eyebrow">DEIN TRAININGSFORTSCHRITT</div><h2 class="section" style="margin:5px 0 0">📈 Trainingsstatistiken</h2></div><span class="fpstats-icon" aria-hidden="true">📊</span></div>
+      <div class="fpstats-tabs" role="group" aria-label="Zeitraum auswählen">
+        ${[['week','Woche'],['month','Monat'],['year','Jahr']].map(([key,text])=>`<button class="fpstats-tab ${period===key?'fpstats-selected':''}" type="button" data-fpstat-period="${key}" aria-pressed="${period===key}">${text}</button>`).join('')}
+      </div>
+      <div class="fpstats-nav"><button class="btn" type="button" data-fpstat-shift="-1" ${!canGoBack?'disabled':''} aria-label="Vorheriger Zeitraum">‹</button><b>${safe(range.caption)}</b><button class="btn" type="button" data-fpstat-shift="1" ${now?'disabled':''} aria-label="Nächster Zeitraum">›</button></div>
+      <div class="fpstats-numbers">
+        <div class="fpstats-number"><span>💪 Trainings</span><strong>${sum.workouts.toLocaleString('de-DE')}</strong></div>
+        <div class="fpstats-number"><span>⏱ Minuten</span><strong>${sum.minutes.toLocaleString('de-DE')}</strong></div>
+        <div class="fpstats-number"><span>🔥 kcal geschätzt</span><strong>${sum.kcal.toLocaleString('de-DE')}</strong></div>
+        <div class="fpstats-number"><span>📅 Trainingstage</span><strong>${sum.days.toLocaleString('de-DE')}</strong></div>
+      </div>
+      <p class="fpstats-comparison">${safe(fpStatsDelta(sum.minutes,before.minutes))}</p>
+    </div>
+    <div class="card"><div class="row"><b>📊 Dein Verlauf</b><span class="sub">${safe(labels[metric])}</span></div>
+      <div class="fpstats-metrics" role="group" aria-label="Diagramm auswählen">${[['minutes','Minuten'],['workouts','Trainings'],['kcal','Kalorien']].map(([key,text])=>`<button type="button" class="fpstats-metric ${metric===key?'fpstats-selected':''}" data-fpstat-metric="${key}" aria-pressed="${metric===key}">${text}</button>`).join('')}</div>
+      <div class="fpstats-chart" role="img" aria-label="${safe(labels[metric])} für ${safe(range.caption)}: ${bars.map(b=>b.label+' '+b.value).join(', ')}">
+        ${bars.map(b=>`<div class="fpstats-column"><span class="fpstats-value">${b.value||''}</span><div class="fpstats-track"><div class="fpstats-fill" style="height:${b.value?Math.max(5,100*b.value/max):0}%"></div></div><span class="fpstats-label">${safe(b.label)}</span></div>`).join('')}
+      </div>
+      ${items.length?'':'<p class="sub" style="text-align:center">Hier erscheinen deine Trainings, sobald du welche abgeschlossen hast.</p>'}
+    </div>
+    <div class="card"><b>🔎 Dein Trainingsrückblick</b>
+      <div class="fpstats-recap"><div><span>Abgeschlossene Sätze</span><strong>${sum.sets}</strong></div><div><span>Ø Dauer pro Training</span><strong>${average} Min.</strong></div></div>
+      <p class="sub" style="margin:12px 0 2px">${favorite?'Am häufigsten: <b>'+safe(favorite[0])+'</b> ('+favorite[1]+'×)':'Dein häufigstes Training wird hier angezeigt, sobald du welche gespeichert hast.'}</p>
+    </div>
+    <div class="card"><div class="row"><b>🏋️ Persönliche Bestleistungen</b><button class="btn" type="button" data-action="showRecords">Alle →</button></div>
+      ${recordList.length?recordList.map(x=>`<div class="item"><div class="grow"><b class="small">${safe(x.name)}</b><div class="sub">Bestes dokumentiertes Gewicht</div></div><b>${x.weight.toLocaleString('de-DE')} kg</b></div>`).join(''):'<p class="sub">Trage bei deinen Übungen Gewichte ein und hake Sätze ab, um deine Rekorde zu sehen.</p>'}
+      <button class="btn" type="button" data-action="showStrength" style="margin-top:12px">📈 Kraftentwicklung ansehen →</button>
+    </div>
+    <p class="sub" style="margin:8px 2px 18px">Nur abgeschlossene, gespeicherte Trainings zählen. Kalorien sind Schätzwerte. Die Daten stammen aus deinem persönlichen Trainingsverlauf.</p>
+  </section>`;
+}
+function fpStatsStyles(){
+  if(document.getElementById('fpStatsStyles'))return;
+  const sheet=document.createElement('style');sheet.id='fpStatsStyles';sheet.textContent=`
+  .fpstats-main{overflow:hidden}.fpstats-icon{font-size:34px}.fpstats-tabs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin:18px 0 12px;padding:5px;border-radius:14px;background:rgba(127,127,150,.12)}
+  .fpstats-tab,.fpstats-metric{border:0;border-radius:10px;padding:10px 5px;background:transparent;color:inherit;font:inherit;font-weight:700;font-size:13px;cursor:pointer}
+  .fpstats-selected{background:#6553db!important;color:#fff!important;box-shadow:0 2px 7px rgba(55,44,117,.2)}
+  .fpstats-nav{display:flex;align-items:center;justify-content:space-between;gap:10px;text-align:center;margin:12px 0 18px}.fpstats-nav b{font-size:14px;line-height:1.3}
+  .fpstats-numbers{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.fpstats-number{border-radius:13px;padding:13px 10px;background:rgba(111,95,214,.09);min-width:0}
+  .fpstats-number span{display:block;font-size:12px;opacity:.8}.fpstats-number strong{display:block;font-size:26px;font-weight:850;margin-top:5px;font-variant-numeric:tabular-nums;word-break:break-word}
+  .fpstats-comparison{font-size:12px;opacity:.8;margin:14px 0 0}
+  .fpstats-metrics{display:flex;gap:6px;margin:14px 0;flex-wrap:wrap}.fpstats-metric{background:rgba(127,127,150,.12);flex:1;min-width:75px}
+  .fpstats-chart{display:flex;align-items:stretch;justify-content:space-between;gap:4px;height:218px;width:100%;margin-top:6px;overflow:hidden}
+  .fpstats-column{display:flex;flex:1 1 0;min-width:0;flex-direction:column;align-items:center;font-size:11px;gap:5px}
+  .fpstats-value{height:19px;line-height:19px;font-size:11px;font-weight:750;font-variant-numeric:tabular-nums}
+  .fpstats-track{width:100%;flex:1;display:flex;align-items:flex-end;justify-content:center;border-bottom:1px solid rgba(111,95,214,.25)}
+  .fpstats-fill{width:min(70%,35px);background:linear-gradient(180deg,#a78bfa,#6553db);border-radius:7px 7px 0 0;transition:height .25s ease}
+  .fpstats-label{min-height:20px;max-width:100%;white-space:nowrap;font-size:10px;overflow:hidden;text-overflow:clip;text-align:center}
+  .fpstats-recap{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;margin-top:13px}
+  .fpstats-recap>div{padding:12px;border-radius:12px;background:rgba(111,95,214,.08)}.fpstats-recap span{display:block;opacity:.75;font-size:12px}.fpstats-recap strong{display:block;font-size:20px;margin-top:7px}
+  @media(max-width:350px){.fpstats-label{font-size:9px}.fpstats-number strong{font-size:22px}.fpstats-tab,.fpstats-metric{font-size:12px}}
+  `;document.head.appendChild(sheet);
+}
+fpStatsStyles();
+const fpProgressBeforeExtendedStatistics=progress;
+progress=function(){
+  const original=fpProgressBeforeExtendedStatistics();
+  // Eigene Unterseiten (Freunde, Rekorde, Kraft) nicht ueberschreiben.
+  if(['records','strength','friends','levels'].includes(s.view))return original;
+  const panel=fpStatsPanel();
+  // Neues Dashboard nach der vorhandenen Titelzeile einsetzen.
+  const heading='<h1 class="title">Deine Trainingswochen.</h1>';
+  return original.includes(heading)?original.replace(heading,heading+panel):panel+original;
+};
+document.addEventListener('click',e=>{
+  const button=e.target.closest('button');if(!button)return;
+  if(button.dataset.fpstatPeriod){
+    e.preventDefault();e.stopImmediatePropagation();
+    s.fpStatsPeriod=button.dataset.fpstatPeriod;s.fpStatsOffset=0;
+    save();render();return;
+  }
+  if(button.dataset.fpstatMetric){
+    e.preventDefault();e.stopImmediatePropagation();
+    s.fpStatsMetric=button.dataset.fpstatMetric;
+    save();render();return;
+  }
+  if(button.dataset.fpstatShift!==undefined){
+    e.preventDefault();e.stopImmediatePropagation();
+    const next=s.fpStatsOffset+Number(button.dataset.fpstatShift);
+    s.fpStatsOffset=Math.max(-104,Math.min(0,next));
+    save();render();return;
+  }
+},true);
+
 })();
