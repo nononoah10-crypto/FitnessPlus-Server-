@@ -882,4 +882,55 @@ setInterval(fpBoosterBanner,1000);
     }, 1100);
   };
 
+
+
+// FitnessPlus: persoenliche taegliche Checkliste.
+// Aufgaben bleiben erhalten; nur die Haken werden bei einem neuen Kalendertag geloescht.
+s.dailyTodos=Array.isArray(s.dailyTodos)?s.dailyTodos.filter(x=>x&&typeof x.text==='string').slice(0,100).map(x=>({id:String(x.id||uid()),text:String(x.text).slice(0,100),done:!!x.done})):[];
+s.dailyTodoDate=/^\d{4}-\d{2}-\d{2}$/.test(String(s.dailyTodoDate||''))?s.dailyTodoDate:day();
+function fpTodoNewDay(){
+  const today=day();
+  if(s.dailyTodoDate===today)return false;
+  s.dailyTodoDate=today;
+  s.dailyTodos.forEach(x=>{x.done=false});
+  save();
+  return true;
+}
+function fpTodoCard(){
+  fpTodoNewDay();
+  const tasks=s.dailyTodos;
+  const completed=tasks.filter(x=>x.done).length;
+  return `<div class="card" id="fpTodoCard"><div class="row"><div><b>✅ Meine tägliche Liste</b><div class="sub">Jeden Tag neue Häkchen, deine Aufgaben bleiben.</div></div><span class="sub">${completed} / ${tasks.length}</span></div>
+    <div class="progressTrack" style="margin:12px 0"><div class="progressFill" style="width:${tasks.length?Math.round(completed/tasks.length*100):0}%;background:#55b98d"></div></div>
+    ${tasks.length?tasks.map(t=>`<div class="item" style="gap:9px;align-items:center"><label class="grow" style="display:flex;gap:11px;align-items:center;min-width:0;cursor:pointer"><input type="checkbox" data-todocheck="${safe(t.id)}" ${t.done?'checked':''} style="width:22px;height:22px;flex-shrink:0;accent-color:#55b98d"><span style="overflow-wrap:anywhere;${t.done?'text-decoration:line-through;opacity:.55;':''}">${safe(t.text)}</span></label><button type="button" class="btn danger" data-tododelete="${safe(t.id)}" aria-label="Aufgabe löschen">×</button></div>`).join(''):'<p class="sub">Noch keine Aufgaben. Füge deine erste Aufgabe hinzu!</p>'}
+    <form id="fpTodoForm" style="display:flex;gap:8px;margin-top:12px"><input class="input" name="task" required maxlength="100" placeholder="Neue Aufgabe ..." aria-label="Neue Aufgabe" style="min-width:0;flex:1"><button class="btn" type="submit">+ Hinzufügen</button></form>
+    <p class="sub" style="margin-top:10px">Die Häkchen werden am nächsten Tag automatisch zurückgesetzt.</p></div>`;
+}
+const fpHomeBeforeTodo=home;
+home=function(){return fpHomeBeforeTodo()+fpTodoCard()};
+document.addEventListener('submit',e=>{
+  if(e.target.id!=='fpTodoForm')return;
+  e.preventDefault();e.stopImmediatePropagation();fpTodoNewDay();
+  const name=String(new FormData(e.target).get('task')||'').trim().slice(0,100);
+  if(!name)return;
+  if(s.dailyTodos.length>=100){toast('Maximal 100 Aufgaben möglich.');return}
+  s.dailyTodos.push({id:uid(),text:name,done:false});save();render();toast('Aufgabe hinzugefügt');
+},true);
+document.addEventListener('change',e=>{
+  const input=e.target.closest('input[data-todocheck]');if(!input)return;
+  e.stopImmediatePropagation();fpTodoNewDay();
+  const task=s.dailyTodos.find(x=>x.id===input.dataset.todocheck);
+  if(!task)return;
+  task.done=!!input.checked;save();render();
+},true);
+document.addEventListener('click',e=>{
+  const btn=e.target.closest('button[data-tododelete]');if(!btn)return;
+  e.preventDefault();e.stopImmediatePropagation();fpTodoNewDay();
+  s.dailyTodos=s.dailyTodos.filter(x=>x.id!==btn.dataset.tododelete);
+  save();render();toast('Aufgabe gelöscht');
+},true);
+// Bei geoeffneter App auch ohne Seitenwechsel den Tageswechsel bemerken.
+setInterval(()=>{if(fpTodoNewDay()&&s.tab==='home')render()},60000);
+document.addEventListener('visibilitychange',()=>{if(!document.hidden&&fpTodoNewDay()&&s.tab==='home')render()});
+
 })();
