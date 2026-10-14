@@ -596,38 +596,115 @@ setTimeout(checkAnnouncement,1100);
 setInterval(checkAnnouncement,60000);
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)checkAnnouncement()});
 
-// FitnessPlus 6.8: published offline-friendly events. This is not authenticated or tamper-proof.
-const EVENT_FILE='./events.json';
+// FitnessPlus: events are published for every user by the admin panel and fetched
+// from the SAME online server that stores them. No independent events.json file.
 let liveEvents={id:'',active:false}, eventLoading=false;
-s.eventClaims=s.eventClaims&&typeof s.eventClaims==='object'?s.eventClaims:{};
-s.seasonProgress=s.seasonProgress&&typeof s.seasonProgress==='object'?s.seasonProgress:{};
-s.eventWheel=s.eventWheel&&typeof s.eventWheel==='object'?s.eventWheel:{};
-function validEvent(x){return x&&typeof x.id==='string'&&x.id.length<=100&&x.active===true&&typeof x==='object'}
-function activeEvent(){if(!validEvent(liveEvents))return null;let now=Date.now(),start=Date.parse(liveEvents.start||''),end=Date.parse(liveEvents.end||'');if(!Number.isFinite(start)||!Number.isFinite(end)||now<start||now>=end)return null;return liveEvents}
-async function refreshEvents(){if(eventLoading)return;eventLoading=true;try{let r=await fetch(EVENT_FILE+'?nocache='+Date.now(),{cache:'no-store'});if(!r.ok)throw Error('Not available');let j=await r.json();liveEvents=validEvent(j)?j:{id:'',active:false};if(s.view==='events')render()}catch(_){liveEvents={id:'',active:false}}finally{eventLoading=false}}
-function eventDoubleXP(){const e=activeEvent();return e&&e.doubleXP?2:1}
-function seasonRecordExercise(){const e=activeEvent();if(!e||!e.season||!e.season.active)return;let key=e.id;s.seasonProgress[key]=(Number(s.seasonProgress[key])||0)+1;save()}
-function eventView(){let e=activeEvent(),parts=[hdr('FITNESSPLUS EVENTS','Events & Belohnungen.'),'<button class="btn" data-eventback="1">← Zurück</button>'];if(!e)return parts.join('')+'<div class="card"><b>Gerade kein Event aktiv</b><p class="sub">Neue Events erscheinen hier, wenn die öffentliche Eventdatei aktualisiert wird.</p><button class="btn" data-eventrefresh="1">Aktualisieren</button></div>';
- parts.push(`<div class="card"><b>✨ ${safe(e.title||'FitnessPlus-Event')}</b><p class="sub">Bis ${safe(String(e.end||'').slice(0,10))}</p></div>`);
- if(e.gift&&e.gift.active){const key='gift:'+e.id;let done=!!s.eventClaims[key],amount=Math.max(1,Math.min(500,Math.floor(Number(e.gift.diamonds)||10)));parts.push(`<div class="card"><h2>🎁 Geschenk an alle</h2><p>${amount} 💎 einmal pro Event abholen</p><button class="primary" data-eventgift="1" ${done?'disabled':''}>${done?'✓ Schon abgeholt':'Geschenk abholen'}</button></div>`)}
- if(e.doubleXP)parts.push('<div class="card"><h2>⚡ Doppel-XP aktiv</h2><p class="sub">Jede wirklich abgeschlossene Übung gibt während dieses Events doppelte Level-Punkte. Eigene gekaufte Booster werden nicht zusätzlich vervielfacht.</p></div>');
- if(e.season&&e.season.active){let count=Math.max(0,Number(s.seasonProgress[e.id])||0),tiers=Array.isArray(e.season.tiers)?e.season.tiers:[];parts.push(`<div class="card"><h2>🏆 Saison-Pass</h2><p class="sub">${count} Übungen seit dem Start dieses Events abgeschlossen</p>${tiers.filter(t=>Number.isInteger(t.at)&&t.at>0&&t.at<=100&&Number.isInteger(t.diamonds)&&t.diamonds>0&&t.diamonds<=500).map(t=>{let key='season:'+e.id+':'+t.at,claimed=!!s.eventClaims[key];return `<div class="item"><div class="grow"><b>${t.at} Übungen</b><div class="sub">${t.diamonds} 💎</div></div><button class="btn" data-seasonclaim="${t.at}" ${count<t.at||claimed?'disabled':''}>${claimed?'✓ Geholt':count<t.at?'Gesperrt':'Abholen'}</button></div>`}).join('')}</div>`)}
- if(e.wheel&&e.wheel.active){let today=day(),spun=s.eventWheel[e.id]===today;parts.push(`<div class="card"><h2>🎡 Glücksrad</h2><p class="sub">Eine kostenlose Drehung pro Tag. Zufallsbelohnung: 5, 10, 15, 20 oder 30 💎.</p><button class="primary" data-eventspin="1" ${spun?'disabled':''}>${spun?'✓ Heute schon gedreht':'Jetzt drehen'}</button></div>`)}
- parts.push('<p class="sub">Hinweis: Events und Belohnungen sind in dieser Version nur lokal gespeichert. Es gibt noch keine zentrale, gegen Manipulation geschützte Nutzerverwaltung.</p>');return parts.join('')}
+let fpEventAccount={authenticated:false,wheelUsed:false,giftClaimed:false,progress:0,tiers:[]};
+let fpEventBusy=false;
+const FP_EVENT_SEEN='fitnessplus-last-online-event-v1';
+const fpEventEnabled=x=>!!(x&&(x.wheel||x.season||x.doubleXp||Number(x.giftDiamonds)>0));
+function validEvent(x){return !!(x&&typeof x==='object'&&Number.isFinite(Number(x.updatedAt))&&Number(x.updatedAt)>0&&fpEventEnabled(x))}
+function activeEvent(){return validEvent(liveEvents)?liveEvents:null}
+function fpEventName(e){const bits=[];if(e.doubleXp)bits.push('Doppel-XP');if(e.wheel)bits.push('Glücksrad');if(e.season)bits.push('Saison-Pass');if(Number(e.giftDiamonds)>0)bits.push('Geschenk');return bits.join(' · ')||'FitnessPlus-Event'}
+function fpEventBanner(){
+ let bar=document.getElementById('fpOnlineEventBanner');const e=activeEvent();
+ if(!e){bar?.remove();return}
+ if(!bar){bar=document.createElement('button');bar.type='button';bar.id='fpOnlineEventBanner';bar.setAttribute('aria-label','Aktives FitnessPlus-Event öffnen');document.body.append(bar)}
+ bar.textContent='🎉 EVENT AKTIV · '+fpEventName(e)+'  ›';
+ Object.assign(bar.style,{position:'fixed',bottom:'calc(83px + env(safe-area-inset-bottom, 0px))',left:'12px',right:'12px',width:'calc(100% - 24px)',maxWidth:'520px',margin:'0 auto',zIndex:'1001',padding:'12px 14px',borderRadius:'15px',background:'linear-gradient(110deg,#5b37d6,#a03ac9)',color:'white',fontWeight:'750',fontSize:'13px',textAlign:'center',border:'1px solid rgba(255,255,255,.25)',boxShadow:'0 6px 20px rgba(0,0,0,.20)',cursor:'pointer'});
+ bar.onclick=()=>{s.tab='home';s.view='events';render();refreshEvents()};
+}
+async function refreshEvents(){
+ if(eventLoading)return;eventLoading=true;
+ try{
+  const r=await fetch('/api/events',{credentials:'same-origin',cache:'no-store'});
+  if(!r.ok)throw Error('Event-Server nicht erreichbar');
+  const response=await r.json();const candidate=response.events||{};
+  const previousId=activeEvent()?.updatedAt||0;
+  liveEvents=validEvent(candidate)?candidate:{id:'',active:false};
+  const e=activeEvent();
+  if(e){
+   const eventId=String(e.updatedAt);
+   try{if(localStorage.getItem(FP_EVENT_SEEN)!==eventId){
+    localStorage.setItem(FP_EVENT_SEEN,eventId);
+    toast('🎉 Neues Event: '+fpEventName(e)+'!');
+   }}catch(_e){}
+  }
+  fpEventBanner();
+  // Personal claims are server-controlled, never awarded in localStorage.
+  try{
+   const status=await fetch('/api/game/events',{credentials:'same-origin',cache:'no-store'});
+   if(status.ok){const details=(await status.json()).events||{};
+    fpEventAccount={authenticated:true,wheelUsed:!!details.wheelUsed,giftClaimed:!!details.giftClaimed,progress:Number(details.progress)||0,tiers:Array.isArray(details.tiers)?details.tiers:[]};
+   }else if(status.status===401){fpEventAccount={authenticated:false,wheelUsed:false,giftClaimed:false,progress:0,tiers:[]}}
+  }catch(_e){/* Keep the most recent account status for temporary network errors. */}
+  if(s.view==='events'||previousId!==(e?.updatedAt||0))render();
+ }catch(err){
+  // On a connection interruption keep the most recently confirmed event visible.
+  if(s.view==='events')fpEventBanner();
+ }finally{eventLoading=false}
+}
+function eventDoubleXP(){return activeEvent()?.doubleXp?2:1}
+function seasonRecordExercise(){/* Online season XP is tracked securely on the server. */}
+function fpEventLogin(){
+ if(typeof window.FitnessPlusOpenOnline==='function'){window.FitnessPlusOpenOnline();return}
+ window.location.assign('/online.html');
+}
+function eventView(){
+ const e=activeEvent();let html=hdr('FITNESSPLUS EVENTS','Events & Belohnungen.')+
+  '<button class="btn" data-eventback="1">← Zurück</button>';
+ if(!e)return html+'<div class="card"><b>Gerade kein Event aktiv</b><p class="sub">Starte im Admin-Panel ein Event. Es erscheint dann hier für alle Nutzer.</p><button class="btn" data-eventrefresh="1">Aktualisieren</button></div>';
+ html+='<div class="card"><div style="font-size:35px">🎉</div><b>Event läuft!</b><p class="sub">'+safe(fpEventName(e))+'</p></div>';
+ if(e.doubleXp)html+='<div class="card"><b>⚡ Doppel-XP aktiv</b><p class="sub">Online bestätigte Übungen geben doppelten Fortschritt, sofern kein anderer Booster aktiv ist.</p></div>';
+ if(e.wheel){const used=fpEventAccount.wheelUsed;
+  html+='<div class="card"><div style="font-size:44px;text-align:center">🎡</div><b>Dein Glücksrad</b><p class="sub">Einmal pro Tag drehen und 5, 10, 15, 20 oder 30 Diamanten gewinnen.</p><button class="primary" data-eventspin="1" '+(used?'disabled':'')+'>'+(used?'✓ Heute schon eingelöst':fpEventAccount.authenticated?'🎡 Glücksrad drehen und einlösen':'🔑 Anmelden und Glücksrad einlösen')+'</button></div>';
+ }
+ const gift=Math.floor(Number(e.giftDiamonds)||0);
+ if(gift>0)html+='<div class="card"><b>🎁 Geschenk für alle</b><p class="sub">'+gift+' 💎 einmalig pro Event abholen.</p><button class="primary" data-eventgift="1" '+(fpEventAccount.giftClaimed?'disabled':'')+'>'+(fpEventAccount.giftClaimed?'✓ Geschenk abgeholt':fpEventAccount.authenticated?'🎁 '+gift+' Diamanten einlösen':'🔑 Anmelden und Geschenk einlösen')+'</button></div>';
+ if(e.season){
+  html+='<div class="card"><b>🏆 Saison-Pass</b><p class="sub">'+fpEventAccount.progress+' abgeschlossene Online-Übungen seit Eventbeginn</p>'+
+   (fpEventAccount.tiers.length?fpEventAccount.tiers.map(t=>'<div class="item"><div class="grow"><b>'+Number(t.at)+' Übungen</b><div class="sub">'+Number(t.diamonds)+' 💎</div></div><button class="btn" data-seasonclaim="'+Number(t.at)+'" '+(t.claimed||fpEventAccount.progress<Number(t.at)?'disabled':'')+'>'+(t.claimed?'✓ Abgeholt':fpEventAccount.progress<Number(t.at)?'Noch gesperrt':'Einlösen')+'</button></div>').join(''):'<p class="sub">Melde dich an, um deine Stufen zu sehen.</p>')+'</div>';
+ }
+ return html+'<p class="sub">Alle Event-Belohnungen werden einmalig über dein Online-Konto vergeben.</p>';
+}
 const previousEventsHome=home;home=function(){return previousEventsHome()+'<div class="card"><div class="row"><div><b>🎉 FitnessPlus Events</b><div class="sub">Geschenke · Doppel-XP · Saison-Pass · Glücksrad</div></div><button class="btn" data-openevents="1">Ansehen →</button></div></div>'};
 const previousEventsRender=render;render=function(){previousEventsRender();if(s.view==='events')$('#page').innerHTML=eventView()};
-document.addEventListener('click',e=>{let b=e.target.closest('button');if(!b)return;
- if(b.dataset.openevents!==undefined){e.preventDefault();e.stopImmediatePropagation();s.view='events';render();refreshEvents();return}
+async function fpEventClaim(endpoint,payload){
+ const r=await fetch(endpoint,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload||{})});
+ const result=await r.json().catch(()=>({}));if(!r.ok)throw Error(result.error||'Event konnte nicht eingelöst werden');
+ return result;
+}
+document.addEventListener('click',async e=>{
+ const b=e.target.closest('button');if(!b)return;
+ if(b.dataset.openevents!==undefined){e.preventDefault();e.stopImmediatePropagation();s.tab='home';s.view='events';render();refreshEvents();return}
  if(b.dataset.eventback!==undefined){e.preventDefault();e.stopImmediatePropagation();s.view='';render();return}
  if(b.dataset.eventrefresh!==undefined){e.preventDefault();e.stopImmediatePropagation();refreshEvents();return}
- const ev=activeEvent();if(!ev)return;
- if(b.dataset.eventgift!==undefined){e.preventDefault();e.stopImmediatePropagation();if(!ev.gift?.active)return;let key='gift:'+ev.id;if(s.eventClaims[key])return;s.eventClaims[key]=true;s.diamonds+=Math.max(1,Math.min(500,Math.floor(Number(ev.gift.diamonds)||10)));save();render();toast('🎁 Geschenk abgeholt!');return}
- if(b.dataset.seasonclaim!==undefined){e.preventDefault();e.stopImmediatePropagation();let at=Number(b.dataset.seasonclaim),tier=ev.season?.tiers?.find(t=>t.at===at);if(!ev.season?.active||!tier||!Number.isInteger(at)||at>Number(s.seasonProgress[ev.id]||0))return;let key='season:'+ev.id+':'+at;if(s.eventClaims[key])return;let amt=Number(tier.diamonds);if(!Number.isInteger(amt)||amt<1||amt>500)return;s.eventClaims[key]=true;s.diamonds+=amt;save();render();toast('🏆 Saisonbelohnung: '+amt+' Diamanten!');return}
- if(b.dataset.eventspin!==undefined){e.preventDefault();e.stopImmediatePropagation();if(!ev.wheel?.active||s.eventWheel[ev.id]===day())return;const awards=[5,10,15,20,30];let a=new Uint32Array(1);if(window.crypto?.getRandomValues)crypto.getRandomValues(a);else a[0]=Math.floor(Math.random()*4294967295);let prize=awards[a[0]%awards.length];s.eventWheel[ev.id]=day();s.diamonds+=prize;save();render();toast('🎡 Gewonnen: '+prize+' 💎!');return}
+ const isWheel=b.dataset.eventspin!==undefined,isGift=b.dataset.eventgift!==undefined,isTier=b.dataset.seasonclaim!==undefined;
+ if(!isWheel&&!isGift&&!isTier)return;
+ e.preventDefault();e.stopImmediatePropagation();
+ if(fpEventBusy)return;
+ if(!fpEventAccount.authenticated){fpEventLogin();return}
+ const active=activeEvent();if(!active){toast('Dieses Event ist nicht mehr aktiv.');refreshEvents();return}
+ if(isWheel&&(!active.wheel||fpEventAccount.wheelUsed))return;
+ if(isGift&&(!(Number(active.giftDiamonds)>0)||fpEventAccount.giftClaimed))return;
+ if(isTier&&!active.season)return;
+ fpEventBusy=true;b.disabled=true;
+ try{
+  let result;
+  if(isWheel)result=await fpEventClaim('/api/game/wheel');
+  else if(isGift)result=await fpEventClaim('/api/game/event/gift');
+  else result=await fpEventClaim('/api/game/season/claim',{tier:Number(b.dataset.seasonclaim)});
+  if(result.user){s.diamonds=result.user.diamonds;s.levelExercises=result.user.xp}
+  await refreshEvents();
+  render();
+  if(isWheel)toast('🎡 Glücksrad eingelöst! +'+result.diamonds+' 💎');
+  else toast('🎁 Eventbelohnung: +'+result.diamonds+' 💎!');
+ }catch(err){toast(err.message||'Einlösen fehlgeschlagen');await refreshEvents();}
+ finally{fpEventBusy=false;}
 },true);
 const exportBeforeEvents=doExport;doExport=function(){const data=JSON.parse(localStorage.getItem(KEY)||'{}');const payload={app:'FitnessPlus',version:'6.8',exportedAt:new Date().toISOString(),data:{...data,eventClaims:s.eventClaims,seasonProgress:s.seasonProgress,eventWheel:s.eventWheel}};let blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='FitnessPlus-Backup-'+day()+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),2000)};
 $('#importFile').addEventListener('change',async e=>{try{let f=e.target.files?.[0];if(!f)return;let p=JSON.parse(await f.text());if(p.app!=='FitnessPlus'||!p.data)return;let d=p.data;s.eventClaims=d.eventClaims&&typeof d.eventClaims==='object'?d.eventClaims:{};s.seasonProgress=d.seasonProgress&&typeof d.seasonProgress==='object'?d.seasonProgress:{};s.eventWheel=d.eventWheel&&typeof d.eventWheel==='object'?d.eventWheel:{};save();render()}catch(_){}},true);
-setTimeout(refreshEvents,900);setInterval(refreshEvents,60000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)refreshEvents()});
+setTimeout(refreshEvents,900);setInterval(refreshEvents,12000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)refreshEvents()});
 
 const normalOldSettings=settings;
 settings=function(){return normalOldSettings()+`<div class="card"><b>🌐 FitnessPlus Online</b><p class="sub">Die Online-Verwaltung läuft getrennt von dieser App. Dein lokaler Spielstand wird nicht automatisch übertragen.</p><a href="https://fitnessplus-server.onrender.com/online.html" target="_blank" rel="noopener noreferrer" class="primary" style="display:block;text-align:center;text-decoration:none">Online-Konto öffnen ↗</a></div>`};
@@ -845,7 +922,7 @@ window.addEventListener('click',async e=>{
   try{const x=await req('/api/game/daily');s.diamonds=x.user.diamonds;s.dailyReward.last=day();save();render();toast('🎉 +'+x.diamonds+' tägliche Diamanten!')}catch(err){toast(err.message)}return;
  }
  // Offline gift/event claims remain local in legacy versions; disable for signed-in users.
- if(b.dataset.eventgift!==undefined||b.dataset.seasonclaim!==undefined||b.dataset.eventspin!==undefined||b.dataset.giftredeem!==undefined||b.dataset.fp70giftredeem!==undefined){
+ if(b.dataset.giftredeem!==undefined||b.dataset.fp70giftredeem!==undefined){
   e.preventDefault();e.stopPropagation();e.stopImmediatePropagation();window.FitnessPlusOpenOnline?.();toast('🎉 Online-Geschenke und Events im Online-Menü abholen.');return;
  }
 },true);
@@ -919,6 +996,9 @@ render=function(){fpRenderWithoutDuplicateBooster();document.getElementById('fpA
   };
 
 
+
+const fpRenderEventBanner=render;
+render=function(){const output=fpRenderEventBanner();fpEventBanner();return output};
 
 // FitnessPlus: persoenliche taegliche Checkliste.
 // Aufgaben bleiben erhalten; nur die Haken werden bei einem neuen Kalendertag geloescht.
