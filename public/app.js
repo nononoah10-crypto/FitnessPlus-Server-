@@ -767,6 +767,7 @@ let runId='',pending=new Set(),starting=null;
 const req=async (url,data)=>{let r=await fetch(url,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(data||{})});let x=await r.json();if(!r.ok)throw Error(x.error||'Server nicht erreichbar');return x};
 const status=async()=>{try{let r=await fetch('/api/game',{credentials:'same-origin',cache:'no-store'});if(!r.ok)return;let x=await r.json();s.diamonds=x.user.diamonds;s.levelExercises=x.user.xp;s.levelBoostMultiplier=x.booster.multiplier;s.levelBoostUses=x.booster.uses;s.rewardBoxes=x.chests.map(t=>({id:t.id,name:'Online-Truhe'}));render()}catch{}};
 window.FP76Refresh=status;
+window.addEventListener('focus',()=>{if(window.FP76Online)status()});
 window.FP76Start=()=>{if(!window.FP76Online)return;runId='';starting=req('/api/game/start').then(x=>runId=x.runId).catch(e=>toast('Online-Training nicht gestartet: '+e.message))};
 window.FP76Exercise=async claim=>{
  if(!window.FP76Online||s.levelExerciseClaims[claim]||pending.has(claim))return;
@@ -776,7 +777,7 @@ window.FP76Exercise=async claim=>{
   const x=await req('/api/game/exercise',{runId,exerciseIndex:ix});
   s.levelExerciseClaims[claim]=true;s.levelExercises=x.user.xp;
   s.rewardBoxes.push({id:x.chestId,name:'Online-Truhe'});
-  await status();save();render();toast('✅ +'+x.xpGain+' XP und eine Online-Truhe!');
+  await status();save();render();toast('✅ +'+x.xpGain+' XP und eine Online-Truhe! Booster-Zähler aktualisiert.');
  }catch(e){toast(e.message)}finally{pending.delete(claim)}
 };
 const openCloudChest=async id=>{
@@ -825,8 +826,8 @@ function fpBoosterBanner(){
   if(!count){if(bar)bar.remove();return}
   if(!bar){bar=document.createElement('div');bar.id='fpActiveBoosterBanner';bar.setAttribute('role','status');document.body.appendChild(bar)}
   const multiplier=Number(s.levelBoostMultiplier)===3?3:2;
-  bar.textContent='⚡ '+multiplier+'× Level-Booster aktiv · Noch '+count+' '+(count===1?'Übung':'Übungen');
-  Object.assign(bar.style,{position:'fixed',left:'12px',right:'12px',bottom:'76px',zIndex:'1000',padding:'12px 15px',borderRadius:'14px',background:'#192d48',color:'#fff',fontSize:'14px',fontWeight:'700',textAlign:'center',boxShadow:'0 4px 18px rgba(0,0,0,.22)',pointerEvents:'none'});
+  bar.textContent='⚡ '+multiplier+'× Booster · '+count+' '+(count===1?'Übung':'Übungen')+' übrig';
+  Object.assign(bar.style,{position:'fixed',left:'48px',right:'48px',bottom:'calc(100px + env(safe-area-inset-bottom, 0px))',zIndex:'1000',padding:'7px 10px',borderRadius:'10px',background:'#192d48',color:'#fff',fontSize:'12px',fontWeight:'650',textAlign:'center',boxShadow:'0 4px 18px rgba(0,0,0,.22)',pointerEvents:'none'});
 }
 const fpRenderWithBanner=render;
 render=function(){fpRenderWithBanner();fpBoosterBanner()};
