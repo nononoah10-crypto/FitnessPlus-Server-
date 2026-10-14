@@ -31,7 +31,7 @@ function currentEvent(){return JSON.parse(q('SELECT value FROM settings WHERE ke
 function eventId(e){return String(e.updatedAt||0)}
 function seasonTiers(){return [{at:3,diamonds:10},{at:10,diamonds:25},{at:25,diamonds:60},{at:50,diamonds:120}]}
 function gameEvents(u){const e=currentEvent(),id=eventId(e),day=new Date().toISOString().slice(0,10),progress=q('SELECT COUNT(*) n FROM game_exercises WHERE run_id IN (SELECT id FROM game_runs WHERE user_id=?) AND awarded_at>=?',u.id,Number(e.updatedAt)||0).n;return {config:e,id,progress,tiers:seasonTiers().map(t=>({...t,claimed:!!q('SELECT 1 FROM game_season_claims WHERE user_id=? AND season_id=? AND tier=?',u.id,id,t.at)})),wheelUsed:!!q('SELECT 1 FROM game_wheel WHERE user_id=? AND event_id=? AND award_day=?',u.id,id,day),giftClaimed:!!q('SELECT 1 FROM game_event_claims WHERE user_id=? AND event_id=?',u.id,id)}}
-const boostCatalog={boost2small:{price:60,multiplier:2,uses:3},boost2long:{price:130,multiplier:2,uses:8},boost3mega:{price:200,multiplier:3,uses:5}};
+const boostCatalog={boost2small:{price:300,multiplier:2,uses:3},boost2long:{price:650,multiplier:2,uses:8},boost3mega:{price:1000,multiplier:3,uses:5}};
 const q=(sql,...args)=>db.prepare(sql).get(...args), all=(sql,...args)=>db.prepare(sql).all(...args), run=(sql,...args)=>db.prepare(sql).run(...args);
 const uid=()=>crypto.randomUUID(), random=(n=24)=>crypto.randomBytes(n).toString('base64url');
 function hashPass(password,salt){return crypto.scryptSync(password,salt,64).toString('hex')}
