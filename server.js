@@ -176,6 +176,26 @@ const uid=()=>crypto.randomUUID(), random=(n=24)=>crypto.randomBytes(n).toString
 function hashPass(password,salt){return crypto.scryptSync(password,salt,64).toString('hex')}
 function authPass(u,password){const cand=Buffer.from(hashPass(password,u.salt),'hex');return crypto.timingSafeEqual(cand,Buffer.from(u.passhash,'hex'))}
 function publicUser(u){return {id:u.id,name:u.username,role:u.role,friendCode:u.friend_code,diamonds:u.diamonds,level:1+Math.floor(u.xp/3),xp:u.xp,progress:u.xp%3}}
+
+// Online-Tagesbelohnungen sind der vertrauenswuerdige Streak-Nachweis.
+// Die Datenbank enthaelt nur Tagescodes; hieraus wird der hoechste Rekord
+// ohne neue Tabellen und ohne vom Freund selbst erzeugte Codes berechnet.
+function dailyStreakStats(userId){
+ const claims=all('SELECT award_day FROM game_daily WHERE user_id=? ORDER BY award_day ASC',userId);
+ let bestStreak=0,run=0,lastDay='';
+ for(const entry of claims){
+  const next=String(entry.award_day||'');
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(next))continue;
+  const consecutive=lastDay&&(Date.parse(next+'T00:00:00Z')-Date.parse(lastDay+'T00:00:00Z')===86400000);
+  run=consecutive?run+1:1;
+  bestStreak=Math.max(bestStreak,run);
+  lastDay=next;
+ }
+ const today=new Date().toISOString().slice(0,10);
+ const yesterday=new Date(Date.now()-86400000).toISOString().slice(0,10);
+ return {bestStreak,currentStreak:lastDay===today||lastDay===yesterday?run:0};
+}
+
 function json(res,status,data){const body=JSON.stringify(data);res.writeHead(status,{'content-type':'application/json; charset=utf-8','cache-control':'no-store','x-content-type-options':'nosniff'});res.end(body)}
 function error(res,status,msg){json(res,status,{error:msg})}
 function cookies(req){const result={};for(const c of (req.headers.cookie||'').split(';')){const ix=c.indexOf('=');if(ix>-1)result[c.slice(0,ix).trim()]=c.slice(ix+1).trim()}return result}
@@ -491,7 +511,13 @@ async function handler(req,res){try{
   }catch(err){db.exec('ROLLBACK');throw err}
  }
  if(req.method==='GET'&&url.pathname==='/api/me')return json(res,200,{user:publicUser(u)});
- if(req.method==='GET'&&url.pathname==='/api/friends')return json(res,200,{friends:all(`SELECT u.id,u.username AS name,u.xp,1+CAST(u.xp/3 AS INTEGER) AS level FROM friendship f JOIN users u ON u.id=CASE WHEN f.a=? THEN f.b ELSE f.a END WHERE f.a=? OR f.b=? ORDER BY u.xp DESC`,u.id,u.id,u.id)});
+ if(req.method==='GET'&&url.pathname==='/api/friends'){
+  // Nur authentifizierte, bestaetigte Online-Freundschaften sind sichtbar.
+  // Rekorde werden aus tatsaechlich auf dem Server abgeholten Tagesbelohnungen
+  // ermittelt. Es ist kein spezieller Code fuer Streaks erforderlich.
+  const friends=all(`SELECT u.id,u.username AS name,u.xp,1+CAST(u.xp/3 AS INTEGER) AS level FROM friendship f JOIN users u ON u.id=CASE WHEN f.a=? THEN f.b ELSE f.a END WHERE f.a=? OR f.b=? ORDER BY u.xp DESC`,u.id,u.id,u.id);
+  return json(res,200,{friends:friends.map(f=>({...f,...dailyStreakStats(f.id)}))});
+ }
  if(req.method==='POST'&&url.pathname==='/api/friends/add'){
   const code=String(data.code||'').trim();const other=q('SELECT * FROM users WHERE friend_code=?',code);
   if(!other||other.id===u.id)return error(res,404,'Freund nicht gefunden');const [a,b]=[u.id,other.id].sort();run('INSERT OR IGNORE INTO friendship VALUES(?,?,?)',a,b,Date.now());return json(res,200,{ok:true,friend:publicUser(other)})
