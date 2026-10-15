@@ -61,6 +61,12 @@ db.exec(`CREATE TABLE IF NOT EXISTS friend_messages (
 );
 CREATE INDEX IF NOT EXISTS idx_friend_messages_sender_recipient_date ON friend_messages(sender_id,recipient_id,created_at);
 CREATE INDEX IF NOT EXISTS idx_friend_messages_recipient_sender_date ON friend_messages(recipient_id,sender_id,created_at);`);
+// Read receipts for friend messages. Safe migration for existing SQLite databases.
+// Existing messages are preserved; only the new nullable column is added.
+if(!db.prepare('PRAGMA table_info(friend_messages)').all().some(c=>c.name==='read_at')){
+ db.exec('ALTER TABLE friend_messages ADD COLUMN read_at INTEGER');
+}
+db.exec('CREATE INDEX IF NOT EXISTS idx_friend_messages_unread ON friend_messages(recipient_id,read_at,sender_id,created_at)');
 function chatFriend(userId,friendId){
  if(!friendId||friendId===userId||friendId.length>100)return false;
  return !!q('SELECT 1 FROM friendship WHERE (a=? AND b=?) OR (a=? AND b=?)',userId,friendId,friendId,userId);
@@ -527,6 +533,25 @@ async function handler(req,res){try{
   }catch(err){db.exec('ROLLBACK');throw err}
  }
  if(req.method==='GET'&&url.pathname==='/api/me')return json(res,200,{user:publicUser(u)});
+ // Unread messages for the notification bell; each recipient sees only their own chats.
+ if(req.method==='GET'&&url.pathname==='/api/chat/unread'){
+  const rows=all(`SELECT m.sender_id AS friendId,u.username AS friendName,
+   COUNT(*) AS unread,MAX(m.created_at) AS lastAt
+   FROM friend_messages m JOIN users u ON u.id=m.sender_id
+   WHERE m.recipient_id=? AND m.read_at IS NULL
+     AND EXISTS (SELECT 1 FROM friendship f
+       WHERE (f.a=? AND f.b=m.sender_id) OR (f.b=? AND f.a=m.sender_id))
+   GROUP BY m.sender_id ORDER BY lastAt DESC LIMIT 30`,u.id,u.id,u.id);
+  const conversations=rows.map(r=>{
+   const newest=q(`SELECT message FROM friend_messages WHERE recipient_id=? AND sender_id=? AND read_at IS NULL
+     ORDER BY created_at DESC,rowid DESC LIMIT 1`,u.id,r.friendId);
+   return {friendId:r.friendId,name:r.friendName,unread:Number(r.unread),
+     lastAt:Number(r.lastAt),preview:String(newest?.message||'').slice(0,120)};
+  });
+  const total=Number(q(`SELECT COUNT(*) AS n FROM friend_messages m WHERE m.recipient_id=? AND m.read_at IS NULL
+    AND EXISTS (SELECT 1 FROM friendship f WHERE (f.a=? AND f.b=m.sender_id) OR (f.b=? AND f.a=m.sender_id))`,u.id,u.id,u.id).n);
+  return json(res,200,{unread:total,conversations});
+ }
  // Friend chat requires a logged-in account and an existing online friendship.
  if(req.method==='GET'&&url.pathname==='/api/chat'){
   const friendId=String(url.searchParams.get('friendId')||'');
@@ -535,6 +560,7 @@ async function handler(req,res){try{
     FROM friend_messages m
     WHERE (m.sender_id=? AND m.recipient_id=?) OR (m.sender_id=? AND m.recipient_id=?)
     ORDER BY m.created_at DESC,m.rowid DESC LIMIT 100`,u.id,friendId,friendId,u.id).reverse();
+  run('UPDATE friend_messages SET read_at=? WHERE recipient_id=? AND sender_id=? AND read_at IS NULL',Date.now(),u.id,friendId);
   return json(res,200,{messages:messages.map(m=>({...m,mine:m.senderId===u.id}))});
  }
  if(req.method==='POST'&&url.pathname==='/api/chat/send'){
