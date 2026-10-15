@@ -1571,5 +1571,132 @@ profileView=function(){
 
 // Erst jetzt rendern: Die neuen Statistik-Ansichten sind vollstaendig registriert.
 // Auch wenn der zuletzt geoeffnete Tab "Verlauf" war, erscheint sofort das Dashboard.
+
+
+// FitnessPlus: antippbare Freundesprofile mit automatisch berechnetem
+// Online-Streak-Rekord. Kein Austausch von Streak-Codes und keine frei
+// eingebbaren Streak-Werte. Nur online verknuepfte Freunde werden angezeigt.
+let fpOnlineFriends=[],fpFriendsOnlineStatus='unknown',fpFriendsFetchedAt=0,fpFriendsBusy=false;
+function fpFriendNameKey(name){return String(name||'').trim().toLocaleLowerCase('de-DE')}
+function fpFriendDisplayRows(){
+ const rows=[];
+ const byName=new Map(fpOnlineFriends.map(f=>[fpFriendNameKey(f.name),f]));
+ const used=new Set();
+ for(const local of (Array.isArray(s.friends)?s.friends:[])){
+  if(!local||typeof local.name!=='string')continue;
+  const live=byName.get(fpFriendNameKey(local.name));
+  if(live){used.add(live.id);rows.push({...live,online:true,exercises:Number(live.xp)||0});}
+  else rows.push({name:local.name,online:false,exercises:Number(local.exercises)||0});
+ }
+ for(const live of fpOnlineFriends){
+  if(used.has(live.id))continue;
+  rows.push({...live,online:true,exercises:Number(live.xp)||0});
+ }
+ return rows.sort((a,b)=>Number(b.exercises)-Number(a.exercises)||String(a.name).localeCompare(String(b.name),'de-DE'));
+}
+async function fpFriendsOnlineRefresh(force=false){
+ if(fpFriendsBusy||(!force&&Date.now()-fpFriendsFetchedAt<15000))return;
+ fpFriendsBusy=true;
+ try{
+  const response=await fetch('/api/friends',{credentials:'same-origin',cache:'no-store'});
+  if(response.status===401){fpOnlineFriends=[];fpFriendsOnlineStatus='login';return}
+  if(!response.ok)throw Error('Freunde nicht erreichbar');
+  const body=await response.json();
+  if(!Array.isArray(body.friends))throw Error('Ungültige Freundesliste');
+  fpOnlineFriends=body.friends.filter(f=>f&&typeof f.id==='string'&&typeof f.name==='string')
+   .map(f=>({id:f.id,name:f.name,xp:Math.max(0,Number(f.xp)||0),
+     level:Math.max(1,Number(f.level)||1),
+     bestStreak:Math.max(0,Math.floor(Number(f.bestStreak)||0)),
+     currentStreak:Math.max(0,Math.floor(Number(f.currentStreak)||0))}));
+  fpFriendsOnlineStatus='ready';fpFriendsFetchedAt=Date.now();
+ }catch(_){fpFriendsOnlineStatus='error'}
+ finally{
+  fpFriendsBusy=false;
+  if(s.tab==='progress'&&['friends','friendProfile'].includes(s.view))render();
+ }
+}
+function fpFriendChosen(){
+ const id=String(s.fpFriendSelectedId||'');
+ const name=fpFriendNameKey(s.fpFriendSelectedName);
+ return fpFriendDisplayRows().find(f=>id?f.online&&f.id===id:!f.online&&fpFriendNameKey(f.name)===name)||null;
+}
+function fpFriendProfileView(){
+ const friend=fpFriendChosen();
+ if(!friend)return hdr('FREUNDESPROFIL','Freund nicht gefunden.')+'<button class="btn" data-fp-friend-back="1">← Zur Freundesliste</button>';
+ const name=safe(friend.name);
+ const online=!!friend.online;
+ const best=online?Math.max(0,Number(friend.bestStreak)||0):null;
+ const current=online?Math.max(0,Number(friend.currentStreak)||0):null;
+ const level=online?Math.max(1,Number(friend.level)||1):levelNumber(Number(friend.exercises)||0);
+ const exerciseCount=online?Math.max(0,Number(friend.xp)||0):Math.max(0,Number(friend.exercises)||0);
+ return hdr('DEINE FREUNDE','Profil von '+name)+
+  '<button class="btn" data-fp-friend-back="1">← Zur Freundesliste</button>'+
+  `<div class="card" style="margin-top:15px"><div class="row" style="gap:15px;align-items:center"><div class="friendAvatar">${safe(friend.name.slice(0,1).toUpperCase())}</div><div class="grow"><b style="font-size:20px">${name}</b><div class="sub">🏆 Level ${level} · ${exerciseCount} Übungen</div></div></div></div>`+
+  `<div class="card"><div class="row" style="align-items:center"><b>🔥 Bester Tages-Streak-Rekord</b><span style="font-size:28px" aria-hidden="true">🏆</span></div>`+
+  (online?`<div class="value" style="font-size:32px;margin:14px 0 7px">${best} ${best===1?'Tag':'Tage'}</div><div class="sub">Aktuelle Tages-Streak: ${current} ${current===1?'Tag':'Tage'}</div><p class="sub" style="margin-top:12px">Der Rekord aktualisiert sich automatisch aus den online abgeholten Tagesbelohnungen. Kein Code nötig.</p>`:
+  `<p class="sub" style="margin-top:14px">Der Streak-Rekord ist noch nicht verfügbar. Dafür müsst ihr beide mit euren FitnessPlus-Online-Konten angemeldet und online befreundet sein. Dein Freund muss keinen Rekord-Code verschicken.</p>`)+
+  '</div>';
+}
+function fpFriendProfileStyles(){
+ if(document.getElementById('fpFriendProfileStyles'))return;
+ const css=document.createElement('style');css.id='fpFriendProfileStyles';
+ css.textContent='.fpFriendOpen{border:0;background:transparent;color:inherit;font:inherit;text-align:left;display:flex;align-items:center;gap:12px;flex:1;min-width:0;padding:3px 0;cursor:pointer}.fpFriendOpen:focus-visible{outline:3px solid #13b89c;border-radius:10px}.fpFriendOpen .grow{flex:1;min-width:0}.fpFriendChevron{color:#149a85;font-size:23px;padding:0 2px}';
+ document.head.appendChild(css);
+}
+fpFriendProfileStyles();
+friendsScreen=function(){
+ const friends=fpFriendDisplayRows();
+ return hdr('DEINE FREUNDE','Gemeinsam stärker.')+
+ `<div class="card"><div class="row"><div><b>👥 Freundesliste</b><div class="sub">${friends.length} ${friends.length===1?'Freund':'Freunde'} gespeichert</div></div><button class="btn" data-action="openLevels">🏆 Rangliste</button></div></div>`+
+ (friends.length?friends.map(f=>{
+  const label=safe(f.name),level=f.online?Math.max(1,Number(f.level)||1):levelNumber(f.exercises);
+  const key=safe(f.online?'online:'+f.id:'local:'+f.name);
+  return `<div class="card friendCard"><div class="row"><button type="button" class="fpFriendOpen" data-fp-friend-open="${key}" aria-label="Profil von ${label} öffnen"><div class="friendAvatar">${safe(f.name.slice(0,1).toUpperCase())}</div><div class="grow"><b>${label}</b><div class="sub">Level ${level} · ${Math.max(0,Number(f.exercises)||0)} Übungen</div>${f.online?`<div class="sub">🔥 Bester Streak: ${Math.max(0,Number(f.bestStreak)||0)} Tage</div>`:''}</div><span class="fpFriendChevron">›</span></button><button class="btn danger" type="button" data-fp-friend-remove="${key}" aria-label="${label} entfernen">Entfernen</button></div></div>`;
+ }).join(''):'<div class="card"><b>Noch keine Freunde</b><p class="sub">Füge einen Freund hinzu, um sein Profil anzusehen.</p></div>')+
+ (fpFriendsOnlineStatus==='login'?'<div class="sub" style="margin:10px 0">🔐 Melde dich bei FitnessPlus Online an, um die Streak-Rekorde deiner Freunde automatisch zu sehen.</div>':
+ fpFriendsOnlineStatus==='error'?'<div class="sub" style="margin:10px 0">Online-Rekorde derzeit nicht erreichbar. Deine gespeicherten Freunde bleiben sichtbar.</div>':'')+
+ friendLinkPanel()+
+ '<p class="sub">Freundescodes dienen nur zum Hinzufügen. Streak-Rekorde werden nicht per Code geteilt, sondern nur bei verbundenen Online-Konten automatisch angezeigt.</p>';
+};
+const fpProgressBeforeFriendProfile=progress;
+progress=function(){if(s.view==='friendProfile')return fpFriendProfileView();return fpProgressBeforeFriendProfile()};
+document.addEventListener('click',async e=>{
+ const button=e.target.closest('button');if(!button)return;
+ if(button.dataset.action==='openFriends'){
+  fpFriendsOnlineRefresh(true);return;
+ }
+ if(button.dataset.fpFriendBack!==undefined){
+  e.preventDefault();e.stopImmediatePropagation();s.fpFriendSelectedId='';s.fpFriendSelectedName='';s.tab='progress';s.view='friends';render();fpFriendsOnlineRefresh();return;
+ }
+ if(button.dataset.fpFriendOpen!==undefined){
+  e.preventDefault();e.stopImmediatePropagation();
+  const key=button.dataset.fpFriendOpen;
+  if(key.startsWith('online:')){s.fpFriendSelectedId=key.slice(7);s.fpFriendSelectedName=''}
+  else if(key.startsWith('local:')){s.fpFriendSelectedId='';s.fpFriendSelectedName=key.slice(6)}
+  else return;
+  s.tab='progress';s.view='friendProfile';render();fpFriendsOnlineRefresh(true);return;
+ }
+ if(button.dataset.fpFriendRemove!==undefined){
+  e.preventDefault();e.stopImmediatePropagation();
+  const key=button.dataset.fpFriendRemove;
+  const friend=fpFriendDisplayRows().find(f=>f.online?'online:'+f.id===key:'local:'+f.name===key);
+  if(!friend)return;
+  if(!confirm(friend.name+' aus der Freundesliste entfernen?'))return;
+  if(friend.online){
+   button.disabled=true;
+   try{
+    const response=await fetch('/api/friends/remove',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({userId:friend.id})});
+    if(!response.ok)throw Error('Online-Freund konnte nicht entfernt werden');
+    fpOnlineFriends=fpOnlineFriends.filter(f=>f.id!==friend.id);
+   }catch(err){button.disabled=false;toast(err.message);return}
+  }
+  s.friends=s.friends.filter(f=>fpFriendNameKey(f.name)!==fpFriendNameKey(friend.name));
+  save();render();toast('Freund entfernt');return;
+ }
+},true);
+window.addEventListener('focus',()=>{if(s.tab==='progress'&&['friends','friendProfile'].includes(s.view))fpFriendsOnlineRefresh(true)});
+window.addEventListener('message',e=>{if(e.origin===location.origin&&e.data?.type==='fitnessplus-session-changed')fpFriendsOnlineRefresh(true)});
+setInterval(()=>{if(!document.hidden&&s.tab==='progress'&&['friends','friendProfile'].includes(s.view))fpFriendsOnlineRefresh()},45000);
+
 render();
 })();
