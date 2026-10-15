@@ -1484,6 +1484,78 @@ render = function(){
   return result;
 };
 
+// FitnessPlus Besuchs-Streak: Ein App-Besuch pro lokalem Kalendertag zaehlt.
+// Kein Klick, keine Uebung und keine Tagesbelohnung ist dafuer erforderlich.
+// Die Serie wird im normalen Spielstand gespeichert und bei angemeldetem
+// Online-Konto ueber die bestehende Cloud-Synchronisierung mitgenommen.
+function fpVisitYesterday(today){
+  const date=new Date(today+'T12:00:00');
+  date.setDate(date.getDate()-1);
+  return dkey(date);
+}
+function fpVisitStreakCheck(){
+  const today=day();
+  const entry=s.visitStreak&&typeof s.visitStreak==='object'&&!Array.isArray(s.visitStreak)?s.visitStreak:{};
+  const last=typeof entry.last==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(entry.last)?entry.last:'';
+  const previous=Number.isSafeInteger(entry.count)&&entry.count>0?Math.min(entry.count,100000):0;
+  if(last===today&&previous>0)return false;
+  const count=last===fpVisitYesterday(today)?Math.min(previous+1,100000):1;
+  s.visitStreak={last:today,count};
+  save();
+  return true;
+}
+function fpVisitStreakCard(){
+  const count=Math.max(1,Math.min(100000,Number(s.visitStreak?.count)||1));
+  const plural=count===1?'Tag':'Tage';
+  return `<div class="card fpVisitStreakCard" aria-label="Deine Besuchs-Streak">
+    <div class="row" style="align-items:center;gap:12px">
+      <div class="grow">
+        <div class="fpVisitKicker">🔥 DEINE BESUCHS-STREAK</div>
+        <div class="fpVisitCount">${count.toLocaleString('de-DE')} ${plural} in Folge!</div>
+        <div class="sub">Heute gezählt ✓ · Komm morgen wieder!</div>
+      </div>
+      <span class="fpVisitFlame" aria-hidden="true">🔥</span>
+    </div>
+    <div class="fpVisitSteps" aria-label="${Math.min(count,7)} von sieben Streak-Schritten erreicht">
+      ${Array.from({length:7},(_,i)=>`<span class="fpVisitStep ${i<count?'fpVisitStepActive':''}" aria-hidden="true">${i<count?'✓':i+1}</span>`).join('')}
+    </div>
+    <p class="sub fpVisitHint">Jeder Tag, an dem du FitnessPlus öffnest, zählt automatisch. Verpasst du einen ganzen Tag, startet deine Streak beim nächsten Besuch wieder bei 1.</p>
+  </div>`;
+}
+function fpVisitStreakStyles(){
+  if(document.getElementById('fpVisitStreakStyles'))return;
+  const sheet=document.createElement('style');sheet.id='fpVisitStreakStyles';
+  sheet.textContent=`
+    .fpVisitStreakCard{background:linear-gradient(125deg,rgba(255,172,70,.15),rgba(255,255,255,.04));border:1px solid rgba(234,143,59,.24)}
+    .fpVisitKicker{font-size:12px;letter-spacing:.12em;font-weight:850;color:#bc672c}
+    .fpVisitCount{font-size:clamp(21px,5vw,28px);font-weight:850;line-height:1.2;margin:8px 0 7px}
+    .fpVisitFlame{font-size:43px;flex:0 0 auto;filter:drop-shadow(0 6px 8px rgba(245,118,35,.2))}
+    .fpVisitSteps{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:7px;margin-top:16px}
+    .fpVisitStep{display:grid;place-items:center;min-width:0;height:42px;border-radius:12px;background:rgba(141,143,157,.14);font-weight:800;color:inherit;opacity:.6}
+    .fpVisitStepActive{background:linear-gradient(150deg,#ffab43,#f06c35);color:white;opacity:1}
+    .fpVisitHint{margin:14px 0 0;line-height:1.5}
+    @media(max-width:350px){.fpVisitSteps{gap:4px}.fpVisitStep{height:34px;border-radius:9px}.fpVisitCount{font-size:21px}}
+  `;
+  document.head.appendChild(sheet);
+}
+fpVisitStreakStyles();
+const fpHomeBeforeVisitStreak=home;
+// Oben auf "Heute" steht zuerst die Besuchs-Streak, dann die Tagesbelohnung.
+home=function(){return fpVisitStreakCard()+fpHomeBeforeVisitStreak()};
+const fpRenderBeforeVisitStreak=render;
+render=function(){
+  fpVisitStreakCheck();
+  return fpRenderBeforeVisitStreak();
+};
+function fpVisitStreakResume(){
+  if(document.hidden)return;
+  if(fpVisitStreakCheck()&&s.tab==='home')render();
+}
+document.addEventListener('visibilitychange',fpVisitStreakResume);
+window.addEventListener('pageshow',fpVisitStreakResume);
+window.addEventListener('focus',fpVisitStreakResume);
+setInterval(fpVisitStreakResume,60000);
+
 // Erst jetzt rendern: Die neuen Statistik-Ansichten sind vollstaendig registriert.
 // Auch wenn der zuletzt geoeffnete Tab "Verlauf" war, erscheint sofort das Dashboard.
 render();
