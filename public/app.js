@@ -1819,7 +1819,106 @@ document.addEventListener('submit',async e=>{
  finally{fpChatSending=false;if(send)send.disabled=false}
 },true);
 setInterval(()=>{if(s.tab==='progress'&&s.view==='friendChat')fpChatRefresh(true)},8000);
+// Reading a chat immediately clears its bell notification after the next refresh.
+
 document.addEventListener('visibilitychange',()=>{if(!document.hidden&&s.view==='friendChat')fpChatRefresh(true)});
+
+
+// FitnessPlus: unread friend messages in the EXISTING notification bell.
+// The gift notification script and its original click handling are left untouched.
+let fpUnreadThreads=[],fpUnreadCount=0,fpUnreadBusy=false,fpUnreadReady=false,fpUnreadPanelOpen=false;
+function fpUnreadBell(){
+ const h=document.querySelector('header.top');if(!h)return null;
+ return [...h.querySelectorAll('button,[role="button"]')].find(b=>{
+  const text=String(b.textContent||'');
+  const attrs=String(b.id||'')+' '+String(b.className||'')+' '+String(b.getAttribute('aria-label')||'');
+  return text.includes('🔔')||/(notif|bell|glocke|benachrichtig)/i.test(attrs);
+ })||null;
+}
+function fpUnreadStyles(){
+ if(document.getElementById('fpUnreadStyle'))return;
+ const css=document.createElement('style');css.id='fpUnreadStyle';css.textContent=`
+ .fpChatBellBadge{position:absolute;bottom:-4px;right:-6px;background:#d92b52;color:#fff;border:2px solid #fff;min-width:21px;height:21px;border-radius:16px;display:grid;place-items:center;padding:0 4px;font-size:11px;font-weight:850;line-height:1;pointer-events:none;z-index:2;box-shadow:0 2px 6px #0003}
+ .fpChatBellPanel{position:fixed;z-index:5500;width:min(350px,calc(100vw - 24px));max-height:min(60vh,500px);overflow:auto;border-radius:20px;background:var(--surface,#fff);color:var(--fg,#183029);border:1px solid var(--line,#dce8e2);box-shadow:0 17px 55px #0004;padding:14px}
+ .fpChatBellHead{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}.fpChatBellHead button{background:var(--surface2,#eef2ef);border:0;border-radius:12px;padding:5px 9px;color:inherit}
+ .fpChatBellItem{display:block;width:100%;border:0;text-align:left;padding:12px 9px;background:transparent;color:inherit;border-top:1px solid var(--line,#e2e9e6);cursor:pointer;border-radius:8px}
+ .fpChatBellItem:focus-visible{outline:2px solid #09a77d}.fpChatBellItem span{font-size:13px;display:block}.fpChatBellItem small{display:block;margin-top:4px;opacity:.7;font-size:12px;overflow-wrap:anywhere}
+ `;document.head.appendChild(css);
+}
+function fpUnreadRenderPanel(){
+ let popup=document.getElementById('fpChatBellPanel');
+ if(!fpUnreadPanelOpen||!fpUnreadCount){popup?.remove();return}
+ const bell=fpUnreadBell();if(!bell){popup?.remove();return}
+ fpUnreadStyles();
+ if(!popup){popup=document.createElement('aside');popup.id='fpChatBellPanel';popup.className='fpChatBellPanel';popup.setAttribute('aria-label','Neue Freundesnachrichten');document.body.appendChild(popup)}
+ const rect=bell.getBoundingClientRect();
+ popup.style.top=Math.min(window.innerHeight-110,rect.bottom+12)+'px';
+ popup.style.right=Math.max(12,window.innerWidth-rect.right)+'px';
+ popup.innerHTML='<div class="fpChatBellHead"><b>💬 Neue Nachrichten ('+fpUnreadCount+')</b><button type="button" data-fp-chat-bell-close="1" aria-label="Nachrichtenliste schließen">✕</button></div>'+
+ fpUnreadThreads.map(t=>'<button type="button" class="fpChatBellItem" data-fp-chat-notification="'+safe(t.friendId)+'"><b>'+safe(t.name)+'</b><span>'+t.unread+' ungelesene '+(t.unread===1?'Nachricht':'Nachrichten')+'</span><small>'+safe(t.preview)+'</small></button>').join('')+
+ '<p class="sub" style="margin:9px 2px 0">Tippe auf eine Nachricht, um den Chat zu öffnen.</p>';
+}
+function fpUnreadUpdateBell(){
+ const bell=fpUnreadBell();if(!bell)return;
+ if(!bell.dataset.fpChatBellBound){
+  bell.dataset.fpChatBellBound='1';
+  // Do not stop propagation: the existing gift/announcement bell keeps working.
+  bell.addEventListener('click',()=>{
+   fpUnreadPanelOpen=!!fpUnreadCount&&!fpUnreadPanelOpen;
+   fpUnreadRenderPanel();
+  });
+ }
+ const old=bell.querySelector('.fpChatBellBadge');
+ if(fpUnreadCount){
+  if(!old){bell.style.position='relative';const badge=document.createElement('span');badge.className='fpChatBellBadge';badge.setAttribute('aria-hidden','true');bell.appendChild(badge)}
+  bell.querySelector('.fpChatBellBadge').textContent=fpUnreadCount>99?'99+':String(fpUnreadCount);
+  bell.title=fpUnreadCount+' ungelesene Freundesnachrichten';
+ }else{old?.remove();if(fpUnreadPanelOpen){fpUnreadPanelOpen=false;fpUnreadRenderPanel()}}
+}
+async function fpUnreadRefresh(){
+ if(fpUnreadBusy||document.hidden)return;
+ fpUnreadBusy=true;
+ try{
+  const response=await fetch('/api/chat/unread',{credentials:'same-origin',cache:'no-store'});
+  if(response.status===401){fpUnreadCount=0;fpUnreadThreads=[];fpUnreadReady=false;fpUnreadPanelOpen=false;fpUnreadUpdateBell();return}
+  if(!response.ok)throw Error('Benachrichtigungen nicht erreichbar');
+  const payload=await response.json();
+  if(!Array.isArray(payload.conversations))throw Error('Ungültige Nachrichtenübersicht');
+  const before=fpUnreadCount;
+  fpUnreadThreads=payload.conversations.filter(x=>x&&typeof x.friendId==='string'&&typeof x.name==='string').slice(0,30);
+  fpUnreadCount=Math.max(0,Number(payload.unread)||0);
+  fpUnreadUpdateBell();if(fpUnreadPanelOpen)fpUnreadRenderPanel();
+  if(fpUnreadReady&&fpUnreadCount>before&&s.view!=='friendChat')toast('💬 Neue Nachricht von einem Freund!');
+  fpUnreadReady=true;
+ }catch(_){/* Keep last verified unread state during a temporary outage. */}
+ finally{fpUnreadBusy=false}
+}
+document.addEventListener('click',async e=>{
+ const close=e.target.closest('button[data-fp-chat-bell-close]');
+ if(close){e.preventDefault();e.stopImmediatePropagation();fpUnreadPanelOpen=false;fpUnreadRenderPanel();return}
+ const target=e.target.closest('button[data-fp-chat-notification]');
+ if(!target)return;
+ e.preventDefault();e.stopImmediatePropagation();
+ const friendId=String(target.dataset.fpChatNotification||'');
+ fpUnreadPanelOpen=false;fpUnreadRenderPanel();
+ if(!fpOnlineFriends.some(f=>f.id===friendId))await fpFriendsOnlineRefresh(true);
+ if(!fpOnlineFriends.some(f=>f.id===friendId)){toast('Bitte melde dich an und öffne deine Freundesliste.');return}
+ fpChatFriendId=friendId;fpChatMessages=[];fpChatError='';s.tab='progress';s.view='friendChat';render();
+ await fpChatRefresh();fpUnreadRefresh();
+},true);
+// A separate tiny popup appears only when unread friend messages exist.
+// Close that popup outside it; never hijack the normal notification bell UI.
+document.addEventListener('click',e=>{
+ if(!fpUnreadPanelOpen||!document.getElementById('fpChatBellPanel'))return;
+ if(e.target.closest('#fpChatBellPanel')||e.target.closest('header.top'))return;
+ fpUnreadPanelOpen=false;fpUnreadRenderPanel();
+});
+window.addEventListener('message',e=>{if(e.origin===location.origin&&e.data?.type==='fitnessplus-session-changed'){fpUnreadReady=false;fpUnreadRefresh()}});
+window.addEventListener('focus',()=>{fpUnreadRefresh();fpUnreadUpdateBell()});
+document.addEventListener('visibilitychange',()=>{if(!document.hidden){fpUnreadRefresh();fpUnreadUpdateBell()}});
+setInterval(()=>{fpUnreadRefresh();fpUnreadUpdateBell()},12000);
+setInterval(fpUnreadUpdateBell,2000);
+setTimeout(()=>{fpUnreadUpdateBell();fpUnreadRefresh()},2400);
 
 render();
 })();
