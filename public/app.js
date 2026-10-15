@@ -1647,6 +1647,7 @@ function fpFriendProfileView(){
  return hdr('DEINE FREUNDE','Profil von '+name)+
   '<button class="btn" data-fp-friend-back="1">← Zur Freundesliste</button>'+
   `<div class="card" style="margin-top:15px"><div class="row" style="gap:15px;align-items:center"><div class="friendAvatar">${safe(friend.name.slice(0,1).toUpperCase())}</div><div class="grow"><b style="font-size:20px">${name}</b><div class="sub">🏆 Level ${level} · ${exerciseCount} Übungen</div></div></div></div>`+
+  (online?`<button type="button" class="primary" data-fp-chat-open="${safe(friend.id)}" style="margin:12px 0">💬 Nachricht schreiben</button>`:'<div class="card"><p class="sub">💬 Chat ist mit bestätigten Online-Freunden möglich.</p></div>')+
   `<div class="card"><div class="row" style="align-items:center"><b>🔥 Bester Tages-Streak-Rekord</b><span style="font-size:28px" aria-hidden="true">🏆</span></div>`+
   (online?`<div class="value" style="font-size:32px;margin:14px 0 7px">${best} ${best===1?'Tag':'Tage'}</div><div class="sub">Aktuelle Tages-Streak: ${current} ${current===1?'Tag':'Tage'}</div><p class="sub" style="margin-top:12px">Der Rekord aktualisiert sich automatisch aus den online abgeholten Tagesbelohnungen. Kein Code nötig.</p>`:
   `<p class="sub" style="margin-top:14px">Der Streak-Rekord ist noch nicht verfügbar. Dafür müsst ihr beide mit euren FitnessPlus-Online-Konten angemeldet und online befreundet sein. Dein Freund muss keinen Rekord-Code verschicken.</p>`)+
@@ -1666,7 +1667,7 @@ friendsScreen=function(){
  (friends.length?friends.map(f=>{
   const label=safe(f.name),level=f.online?Math.max(1,Number(f.level)||1):levelNumber(f.exercises);
   const key=safe(f.online?'online:'+f.id:'local:'+f.name);
-  return `<div class="card friendCard"><div class="row"><button type="button" class="fpFriendOpen" data-fp-friend-open="${key}" aria-label="Profil von ${label} öffnen"><div class="friendAvatar">${safe(f.name.slice(0,1).toUpperCase())}</div><div class="grow"><b>${label}</b><div class="sub">Level ${level} · ${Math.max(0,Number(f.exercises)||0)} Übungen</div>${f.online?`<div class="sub">🔥 Bester Streak: ${Math.max(0,Number(f.bestStreak)||0)} Tage</div>`:''}</div><span class="fpFriendChevron">›</span></button><button class="btn danger" type="button" data-fp-friend-remove="${key}" aria-label="${label} entfernen">Entfernen</button></div></div>`;
+  return `<div class="card friendCard"><div class="row"><button type="button" class="fpFriendOpen" data-fp-friend-open="${key}" aria-label="Profil von ${label} öffnen"><div class="friendAvatar">${safe(f.name.slice(0,1).toUpperCase())}</div><div class="grow"><b>${label}</b><div class="sub">Level ${level} · ${Math.max(0,Number(f.exercises)||0)} Übungen</div>${f.online?`<div class="sub">🔥 Bester Streak: ${Math.max(0,Number(f.bestStreak)||0)} Tage</div>`:''}</div><span class="fpFriendChevron">›</span></button>${f.online?`<button class="btn" type="button" data-fp-chat-open="${safe(f.id)}" aria-label="${label} Nachricht schreiben">💬</button>`:''}<button class="btn danger" type="button" data-fp-friend-remove="${key}" aria-label="${label} entfernen">Entfernen</button></div></div>`;
  }).join(''):'<div class="card"><b>Noch keine Freunde</b><p class="sub">Füge einen Freund hinzu, um sein Profil anzusehen.</p></div>')+
  (fpFriendsOnlineStatus==='login'?'<div class="sub" style="margin:10px 0">🔐 Melde dich bei FitnessPlus Online an, um die Streak-Rekorde deiner Freunde automatisch zu sehen.</div>':
  fpFriendsOnlineStatus==='error'?'<div class="sub" style="margin:10px 0">Online-Rekorde derzeit nicht erreichbar. Deine gespeicherten Freunde bleiben sichtbar.</div>':'')+
@@ -1726,6 +1727,99 @@ document.addEventListener('click',e=>{
   s.selectedDay=chosen;s.calMonth=chosen.slice(0,7);s.tab='calendar';s.view='';render();
  }
 },true);
+
+
+
+// FitnessPlus: Private Nachrichten unter bestätigten Online-Freunden.
+// Server speichert Nachrichten. Keine Nachrichten im Cloud-Spielstand oder localStorage.
+let fpChatFriendId='',fpChatMessages=[],fpChatError='',fpChatBusy=false,fpChatSending=false;
+const fpChatFriend=()=>fpOnlineFriends.find(f=>f.id===fpChatFriendId)||null;
+function fpChatTime(timestamp){
+ const d=new Date(Number(timestamp));
+ return Number.isFinite(d.getTime())?d.toLocaleString('de-DE',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'';
+}
+function fpChatView(){
+ const friend=fpChatFriend(),name=friend?.name||'Freund';
+ const rows=fpChatMessages.length?fpChatMessages.map(m=>`<div class="fpChatLine ${m.mine?'mine':''}"><div class="fpChatBubble"><div>${safe(m.text)}</div><small>${safe(fpChatTime(m.createdAt))}</small></div></div>`).join(''):'<p class="sub" style="text-align:center;margin:25px 0">Noch keine Nachrichten. Sag Hallo! 👋</p>';
+ return hdr('FITNESSPLUS NACHRICHTEN','Chat mit '+safe(name))+
+ `<button type="button" class="btn" data-fp-chat-back="1">← Zur Freundesliste</button>`+
+ `<div class="card" style="margin-top:14px;padding:12px"><div class="row" style="margin-bottom:10px"><b>💬 ${safe(name)}</b><span class="sub">Privater Chat</span></div>`+
+ `<div id="fpChatMessages" class="fpChatMessages" role="log" aria-live="polite">${rows}</div>`+
+ (fpChatError?`<p class="sub" role="alert">${safe(fpChatError)}</p>`:'')+
+ `<form id="fpChatForm" class="fpChatForm"><label class="field" for="fpChatInput">Deine Nachricht</label><textarea id="fpChatInput" class="input" name="text" rows="2" maxlength="500" placeholder="Nachricht schreiben …" required></textarea><div class="row" style="margin-top:10px"><span class="sub">Max. 500 Zeichen</span><button type="submit" class="btn" ${fpChatSending?'disabled':''}>${fpChatSending?'Sendet …':'Senden ➤'}</button></div></form></div>`+
+ `<p class="sub">Nachrichten sind nur für euch beide abrufbar und werden auf dem FitnessPlus-Server gespeichert. Bitte keine privaten Daten teilen.</p>`;
+}
+const fpChatBeforeProgress=progress;
+progress=function(){if(s.view==='friendChat')return fpChatView();return fpChatBeforeProgress()};
+function fpChatStyles(){
+ if(document.getElementById('fpChatStyles'))return;
+ const style=document.createElement('style');style.id='fpChatStyles';
+ style.textContent='.fpChatMessages{height: min(55vh,400px);min-height:220px;overflow-y:auto;background:var(--surface,#f5f6fa);border-radius:12px;padding:12px 8px;border:1px solid rgba(120,120,120,.16)}.fpChatLine{display:flex;margin:7px 0;justify-content:flex-start}.fpChatLine.mine{justify-content:flex-end}.fpChatBubble{max-width:83%;background:#e7e8f0;color:#18202b;padding:10px 12px;border-radius:14px;overflow-wrap:anywhere;white-space:pre-wrap;line-height:1.45;font-size:14px}.fpChatLine.mine .fpChatBubble{background:#d5f2e5;color:#132e21}.fpChatBubble small{display:block;text-align:right;font-size:10px;opacity:.64;margin-top:4px}.fpChatForm{margin-top:12px}.fpChatForm textarea{resize:vertical;min-height:68px}';
+ document.head.appendChild(style);
+}
+fpChatStyles();
+async function fpChatRefresh(silent=false){
+ const id=fpChatFriendId;
+ if(fpChatBusy||!id||s.view!=='friendChat'||document.hidden)return;
+ fpChatBusy=true;
+ try{
+  const r=await fetch('/api/chat?friendId='+encodeURIComponent(id),{credentials:'same-origin',cache:'no-store'});
+  const data=await r.json().catch(()=>({}));
+  if(!r.ok)throw Error(data.error||'Chat konnte nicht geladen werden');
+  if(id!==fpChatFriendId||s.view!=='friendChat')return;
+  const incoming=Array.isArray(data.messages)?data.messages:[];
+  const differs=JSON.stringify(incoming)!==JSON.stringify(fpChatMessages);
+  fpChatMessages=incoming;fpChatError='';
+  if(differs||!silent){
+   const list=document.getElementById('fpChatMessages');
+   if(list){
+    const nearBottom=list.scrollHeight-list.scrollTop-list.clientHeight<100;
+    list.innerHTML=fpChatMessages.length?fpChatMessages.map(m=>`<div class="fpChatLine ${m.mine?'mine':''}"><div class="fpChatBubble"><div>${safe(m.text)}</div><small>${safe(fpChatTime(m.createdAt))}</small></div></div>`).join(''):'<p class="sub" style="text-align:center;margin:25px 0">Noch keine Nachrichten. Sag Hallo! 👋</p>';
+    if(nearBottom||!silent)list.scrollTop=list.scrollHeight;
+   }
+   if(fpChatError===''){
+    const errorEl=document.querySelector('#fpChatForm')?.previousElementSibling;
+    if(errorEl?.getAttribute('role')==='alert')errorEl.remove();
+   }
+  }
+ }catch(e){
+  fpChatError=e.message||'Chat gerade nicht erreichbar';
+  if(!silent&&id===fpChatFriendId){render()}
+ }finally{fpChatBusy=false}
+}
+document.addEventListener('click',e=>{
+ const b=e.target.closest('button');if(!b)return;
+ if(b.dataset.fpChatOpen!==undefined){
+  e.preventDefault();e.stopImmediatePropagation();
+  const friend=fpOnlineFriends.find(f=>f.id===b.dataset.fpChatOpen);
+  if(!friend){toast('Bitte zuerst mit einem Online-Freund verbinden.');return}
+  fpChatFriendId=friend.id;fpChatMessages=[];fpChatError='';s.tab='progress';s.view='friendChat';render();fpChatRefresh();return;
+ }
+ if(b.dataset.fpChatBack!==undefined){
+  e.preventDefault();e.stopImmediatePropagation();
+  fpChatFriendId='';fpChatMessages=[];s.tab='progress';s.view='friends';render();fpFriendsOnlineRefresh(true);return;
+ }
+},true);
+document.addEventListener('submit',async e=>{
+ if(e.target.id!=='fpChatForm')return;
+ e.preventDefault();e.stopImmediatePropagation();
+ if(fpChatSending||!fpChatFriendId)return;
+ const input=document.getElementById('fpChatInput');
+ const text=String(input?.value||'').trim();
+ if(!text||text.length>500){toast('Bitte eine Nachricht bis 500 Zeichen schreiben.');return}
+ const id=fpChatFriendId;fpChatSending=true;
+ const send=e.target.querySelector('button[type="submit"]');if(send)send.disabled=true;
+ try{
+  const r=await fetch('/api/chat/send',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({friendId:id,text})});
+  const data=await r.json().catch(()=>({}));
+  if(!r.ok)throw Error(data.error||'Nachricht konnte nicht gesendet werden');
+  if(id===fpChatFriendId&&input)input.value='';
+  await fpChatRefresh();
+ }catch(err){toast(err.message||'Senden fehlgeschlagen');}
+ finally{fpChatSending=false;if(send)send.disabled=false}
+},true);
+setInterval(()=>{if(s.tab==='progress'&&s.view==='friendChat')fpChatRefresh(true)},8000);
+document.addEventListener('visibilitychange',()=>{if(!document.hidden&&s.view==='friendChat')fpChatRefresh(true)});
 
 render();
 })();
