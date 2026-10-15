@@ -1858,16 +1858,23 @@ function fpUnreadRenderPanel(){
  fpUnreadThreads.map(t=>'<button type="button" class="fpChatBellItem" data-fp-chat-notification="'+safe(t.friendId)+'"><b>'+safe(t.name)+'</b><span>'+t.unread+' ungelesene '+(t.unread===1?'Nachricht':'Nachrichten')+'</span><small>'+safe(t.preview)+'</small></button>').join('')+
  '<p class="sub" style="margin:9px 2px 0">Tippe auf eine Nachricht, um den Chat zu öffnen.</p>';
 }
+// Nur eine Ansicht beim Klicken auf die Glocke:
+// Mit ungelesenen Chat-Nachrichten zeigt sie den Freundeschat an.
+// Sonst bleibt die bestehende Benachrichtigungsansicht unveraendert.
+// Der Capture-Listener verhindert, dass sich beim selben Klick das alte
+// blaue Fenster und das neue Nachrichtenfenster gleichzeitig oeffnen.
+window.addEventListener('click',e=>{
+ if(!fpUnreadCount)return;
+ const bell=fpUnreadBell();
+ if(!bell||!bell.contains(e.target))return;
+ e.preventDefault();
+ e.stopImmediatePropagation();
+ fpUnreadPanelOpen=!fpUnreadPanelOpen;
+ fpUnreadRenderPanel();
+},true);
 function fpUnreadUpdateBell(){
  const bell=fpUnreadBell();if(!bell)return;
- if(!bell.dataset.fpChatBellBound){
-  bell.dataset.fpChatBellBound='1';
-  // Do not stop propagation: the existing gift/announcement bell keeps working.
-  bell.addEventListener('click',()=>{
-   fpUnreadPanelOpen=!!fpUnreadCount&&!fpUnreadPanelOpen;
-   fpUnreadRenderPanel();
-  });
- }
+ // Die Glocke wird beim Klick zentral behandelt. Dadurch gibt es nie zwei Popups.
  const old=bell.querySelector('.fpChatBellBadge');
  if(fpUnreadCount){
   if(!old){bell.style.position='relative';const badge=document.createElement('span');badge.className='fpChatBellBadge';badge.setAttribute('aria-hidden','true');bell.appendChild(badge)}
