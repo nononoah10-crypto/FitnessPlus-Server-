@@ -551,18 +551,77 @@ $('#importFile').addEventListener('change',async e=>{const f=e.target.files?.[0]
 // FitnessPlus 6.1: Diamanten Store ohne Truhen-Menue.
 // FitnessPlus 5.9 – täglich einmal einlösen, Bonus für aufeinanderfolgende Tage.
 s.dailyReward=s.dailyReward&&typeof s.dailyReward==='object'?s.dailyReward:{last:'',streak:0,total:0};
-function dailyInfo(){
- const today=day(),last=String(s.dailyReward.last||'');
- const yesterday=dkey(new Date(new Date(today+'T12:00:00').getTime()-86400000));
- const already=last===today;
- const streak=already?Math.max(1,Number(s.dailyReward.streak)||1):(last===yesterday?Math.max(0,Number(s.dailyReward.streak)||0)+1:1);
- const reward=10+5*Math.min(6,streak-1);
- return {today,already,streak,reward};
+// Streak zaehlt nur nach erfolgreicher Abholung der Tagesbelohnung.
+// Eine Unterbrechung setzt die aktuelle Serie zurueck, nicht den Rekord.
+function fpDailyYesterday(today){
+ const date=new Date(today+'T12:00:00');
+ date.setDate(date.getDate()-1);
+ return dkey(date);
 }
-function dailyCard(){const i=dailyInfo();return `<div class="card dailyCard"><div class="row"><div><div class="dailyEyebrow">🎁 TAGESBELOHNUNG</div><h2 class="dailyTitle">${i.already?'Heute abgeholt!':'Dein täglicher Bonus'}</h2><div class="sub">${i.streak} ${i.streak===1?'Tag':'Tage'} in Folge · ${i.already?'Komm morgen wieder!':'Hol dir '+i.reward+' Diamanten'}</div></div><div class="dailyGem">💎</div></div><div class="dailyDays">${Array.from({length:7},(_,j)=>`<div class="dailyDay ${j<i.streak?'done':''}"><b>${j+1}</b><span>${j<i.streak?'✓':'◆'}</span></div>`).join('')}</div><button class="primary" data-dailyclaim="1" ${i.already?'disabled':''}>${i.already?'✓ Für heute eingelöst':'🎁 '+i.reward+' Diamanten abholen'}</button><p class="sub">Einmal pro Kalendertag auf diesem Gerät. Die Serie startet nach einem ausgelassenen Tag neu.</p></div>`}
+function dailyInfo(){
+ const today=day();
+ const reward=s.dailyReward&&typeof s.dailyReward==='object'?s.dailyReward:{};
+ const last=String(reward.last||'');
+ const saved=Math.max(0,Math.floor(Number(reward.streak)||0));
+ const already=last===today;
+ const continuing=last===today||last===fpDailyYesterday(today);
+ const streak=continuing?saved:0;
+ const nextStreak=already?streak:(last===fpDailyYesterday(today)?streak+1:1);
+ const best=Math.max(Math.max(0,Math.floor(Number(reward.best)||0)),saved);
+ const amount=10+5*Math.min(6,Math.max(0,nextStreak-1));
+ return {today,already,streak,nextStreak,best,reward:amount};
+}
+function fpDailyRecordClaim(info,diamonds){
+ const previous=s.dailyReward&&typeof s.dailyReward==='object'?s.dailyReward:{};
+ const best=Math.max(0,Math.floor(Number(previous.best)||0),Math.floor(Number(previous.streak)||0),info.nextStreak);
+ s.dailyReward={...previous,last:info.today,streak:info.nextStreak,best,
+  total:Math.max(0,Number(previous.total)||0)+Math.max(0,Number(diamonds)||0)};
+}
+function dailyCard(){
+ const i=dailyInfo();
+ const online=window.FP76Online===true;
+ const amount=online?5:i.reward; // Der Online-Server vergibt aktuell 5 Diamanten je Tag.
+ const days=i.streak===1?'Tag':'Tage';
+ const streakMessage=i.already?'Heute abgeholt!':i.streak?'Heute abholen und Streak auf '+i.nextStreak+' erhoehen!':'Hole deine Belohnung ab und starte deine Streak!';
+ return `<div class="card dailyCard">
+  <div class="row"><div><div class="dailyEyebrow">🎁 TAGESBELOHNUNG</div>
+   <h2 class="dailyTitle">${i.already?'Heute abgeholt!':'Dein täglicher Bonus'}</h2>
+   <div class="sub">${i.already?'Komm morgen wieder!':'Hol dir '+amount+' Diamanten'}</div></div>
+   <div class="dailyGem">💎</div></div>
+  <div class="fpRewardStreak" aria-label="Aktuelle Tages-Streak: ${i.streak} ${days}">
+   <span class="fpRewardStreakFlame" aria-hidden="true">🔥</span>
+   <div><b>Deine Tages-Streak: ${i.streak} ${days}</b><div class="sub">${streakMessage}</div></div>
+  </div>
+  <div class="dailyDays">${Array.from({length:7},(_,j)=>`<div class="dailyDay ${j<i.streak?'done':''}"><b>${j+1}</b><span>${j<i.streak?'✓':'◆'}</span></div>`).join('')}</div>
+  <button class="primary" data-dailyclaim="1" ${i.already?'disabled':''}>${i.already?'✓ Für heute eingelöst':'🎁 '+amount+' Diamanten abholen'}</button>
+  <p class="sub">Deine Streak steigt nur, wenn du deine Tagesbelohnung abholst. Verpasst du einen Tag, beginnt sie wieder bei 1. Dein Streak-Rekord bleibt im Profil erhalten.</p>
+ </div>`;
+}
+function fpDailyStreakStyles(){
+ if(document.getElementById('fpDailyStreakStyles'))return;
+ const css=document.createElement('style');css.id='fpDailyStreakStyles';
+ css.textContent=`
+  .fpRewardStreak{display:flex;align-items:center;gap:12px;padding:13px;margin:14px 0 5px;border-radius:15px;background:linear-gradient(110deg,rgba(255,159,68,.16),rgba(255,205,138,.06));border:1px solid rgba(229,129,42,.2)}
+  .fpRewardStreakFlame{font-size:30px;flex:0 0 auto}
+  .fpRewardStreak b{font-size:16px}
+  .fpRewardStreak .sub{margin-top:4px;font-size:12px;line-height:1.4}
+ `;
+ document.head.appendChild(css);
+}
+fpDailyStreakStyles();
 const homeBeforeDaily=home;
 home=function(){return dailyCard()+homeBeforeDaily()};
-document.addEventListener('click',e=>{const b=e.target.closest('button[data-dailyclaim]');if(!b)return;e.preventDefault();e.stopImmediatePropagation();const i=dailyInfo();if(i.already){toast('Die heutige Belohnung hast du bereits abgeholt.');return}s.diamonds+=i.reward;s.dailyReward={last:i.today,streak:i.streak,total:Math.max(0,Number(s.dailyReward.total)||0)+i.reward};save();render();toast('🎉 +'+i.reward+' Diamanten! Tag '+i.streak+' deiner Serie.');},true);
+document.addEventListener('click',e=>{
+ const b=e.target.closest('button[data-dailyclaim]');if(!b)return;
+ e.preventDefault();e.stopImmediatePropagation();
+ if(window.FP76SessionReady===false){toast('Bitte kurz warten, dein Konto wird geladen.');return}
+ const i=dailyInfo();
+ if(i.already){toast('Die heutige Belohnung hast du bereits abgeholt.');return}
+ s.diamonds+=i.reward;
+ fpDailyRecordClaim(i,i.reward);
+ save();render();
+ toast('🎉 +'+i.reward+' Diamanten! 🔥 Streak: '+i.nextStreak+' Tage');
+},true);
 const exportBeforeDaily=doExport;
 doExport=function(){const payload={app:'FitnessPlus',version:'6.0',exportedAt:new Date().toISOString(),data:{goalMinutes:s.goalMinutes,goalCalories:s.goalCalories,workouts:s.workouts,history:s.history,plans:s.plans,reminders:s.reminders,theme:s.theme,water:s.water,waterGoal:s.waterGoal,profile:s.profile,restDefault:s.restDefault,diamonds:s.diamonds,rewardBoxes:s.rewardBoxes,rewardHistory:s.rewardHistory,rewardClaims:s.rewardClaims,storeOwned:s.storeOwned,storeTheme:s.storeTheme,storeTitle:s.storeTitle,levelExercises:s.levelExercises,levelExerciseClaims:s.levelExerciseClaims,friends:s.friends,levelBoostMultiplier:s.levelBoostMultiplier,levelBoostUses:s.levelBoostUses,giftsSent:s.giftsSent,giftsRedeemed:s.giftsRedeemed,giftsInbox:s.giftsInbox,dailyReward:s.dailyReward}};const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});const link=document.createElement('a'),url=URL.createObjectURL(blob);link.href=url;link.download='FitnessPlus-Backup-'+day()+'.json';link.click();setTimeout(()=>URL.revokeObjectURL(url),2000)};
 $('#importFile').addEventListener('change',async e=>{const file=e.target.files?.[0];if(!file)return;try{const payload=JSON.parse(await file.text());if(payload.app!=='FitnessPlus'||!payload.data)return;const r=payload.data.dailyReward;if(r&&typeof r==='object'&&/^\d{4}-\d{2}-\d{2}$/.test(String(r.last||''))){s.dailyReward={last:String(r.last),streak:Math.max(0,Math.floor(Number(r.streak)||0)),total:Math.max(0,Number(r.total)||0)};save();render()}}catch(_){}},true);
@@ -1048,7 +1107,14 @@ window.addEventListener('click',async e=>{
   catch(err){toast(err.message);fpShopRefresh()}return;
  }
  if(b.dataset.dailyclaim!==undefined){e.preventDefault();e.stopPropagation();e.stopImmediatePropagation();
-  try{const x=await req('/api/game/daily');s.diamonds=x.user.diamonds;s.dailyReward.last=day();save();render();toast('🎉 +'+x.diamonds+' tägliche Diamanten!')}catch(err){toast(err.message)}return;
+  b.disabled=true;
+  try{
+   const x=await req('/api/game/daily');
+   s.diamonds=x.user.diamonds;
+   fpDailyRecordClaim(dailyInfo(),x.diamonds);
+   save();render();
+   toast('🎉 +'+x.diamonds+' Diamanten! 🔥 Streak: '+s.dailyReward.streak+' Tage');
+  }catch(err){b.disabled=false;toast(err.message)}return;
  }
  // Offline gift/event claims remain local in legacy versions; disable for signed-in users.
  if(b.dataset.giftredeem!==undefined||b.dataset.fp70giftredeem!==undefined){
@@ -1484,77 +1550,24 @@ render = function(){
   return result;
 };
 
-// FitnessPlus Besuchs-Streak: Ein App-Besuch pro lokalem Kalendertag zaehlt.
-// Kein Klick, keine Uebung und keine Tagesbelohnung ist dafuer erforderlich.
-// Die Serie wird im normalen Spielstand gespeichert und bei angemeldetem
-// Online-Konto ueber die bestehende Cloud-Synchronisierung mitgenommen.
-function fpVisitYesterday(today){
-  const date=new Date(today+'T12:00:00');
-  date.setDate(date.getDate()-1);
-  return dkey(date);
-}
-function fpVisitStreakCheck(){
-  const today=day();
-  const entry=s.visitStreak&&typeof s.visitStreak==='object'&&!Array.isArray(s.visitStreak)?s.visitStreak:{};
-  const last=typeof entry.last==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(entry.last)?entry.last:'';
-  const previous=Number.isSafeInteger(entry.count)&&entry.count>0?Math.min(entry.count,100000):0;
-  if(last===today&&previous>0)return false;
-  const count=last===fpVisitYesterday(today)?Math.min(previous+1,100000):1;
-  s.visitStreak={last:today,count};
-  save();
-  return true;
-}
-function fpVisitStreakCard(){
-  const count=Math.max(1,Math.min(100000,Number(s.visitStreak?.count)||1));
-  const plural=count===1?'Tag':'Tage';
-  return `<div class="card fpVisitStreakCard" aria-label="Deine Besuchs-Streak">
-    <div class="row" style="align-items:center;gap:12px">
-      <div class="grow">
-        <div class="fpVisitKicker">🔥 DEINE BESUCHS-STREAK</div>
-        <div class="fpVisitCount">${count.toLocaleString('de-DE')} ${plural} in Folge!</div>
-        <div class="sub">Heute gezählt ✓ · Komm morgen wieder!</div>
-      </div>
-      <span class="fpVisitFlame" aria-hidden="true">🔥</span>
-    </div>
-    <div class="fpVisitSteps" aria-label="${Math.min(count,7)} von sieben Streak-Schritten erreicht">
-      ${Array.from({length:7},(_,i)=>`<span class="fpVisitStep ${i<count?'fpVisitStepActive':''}" aria-hidden="true">${i<count?'✓':i+1}</span>`).join('')}
-    </div>
-    <p class="sub fpVisitHint">Jeder Tag, an dem du FitnessPlus öffnest, zählt automatisch. Verpasst du einen ganzen Tag, startet deine Streak beim nächsten Besuch wieder bei 1.</p>
-  </div>`;
-}
-function fpVisitStreakStyles(){
-  if(document.getElementById('fpVisitStreakStyles'))return;
-  const sheet=document.createElement('style');sheet.id='fpVisitStreakStyles';
-  sheet.textContent=`
-    .fpVisitStreakCard{background:linear-gradient(125deg,rgba(255,172,70,.15),rgba(255,255,255,.04));border:1px solid rgba(234,143,59,.24)}
-    .fpVisitKicker{font-size:12px;letter-spacing:.12em;font-weight:850;color:#bc672c}
-    .fpVisitCount{font-size:clamp(21px,5vw,28px);font-weight:850;line-height:1.2;margin:8px 0 7px}
-    .fpVisitFlame{font-size:43px;flex:0 0 auto;filter:drop-shadow(0 6px 8px rgba(245,118,35,.2))}
-    .fpVisitSteps{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:7px;margin-top:16px}
-    .fpVisitStep{display:grid;place-items:center;min-width:0;height:42px;border-radius:12px;background:rgba(141,143,157,.14);font-weight:800;color:inherit;opacity:.6}
-    .fpVisitStepActive{background:linear-gradient(150deg,#ffab43,#f06c35);color:white;opacity:1}
-    .fpVisitHint{margin:14px 0 0;line-height:1.5}
-    @media(max-width:350px){.fpVisitSteps{gap:4px}.fpVisitStep{height:34px;border-radius:9px}.fpVisitCount{font-size:21px}}
-  `;
-  document.head.appendChild(sheet);
-}
-fpVisitStreakStyles();
-const fpHomeBeforeVisitStreak=home;
-// Oben auf "Heute" steht zuerst die Besuchs-Streak, dann die Tagesbelohnung.
-home=function(){return fpVisitStreakCard()+fpHomeBeforeVisitStreak()};
-const fpRenderBeforeVisitStreak=render;
-render=function(){
-  fpVisitStreakCheck();
-  return fpRenderBeforeVisitStreak();
+// Besuch allein erhoeht keine Serie. Die alte Extra-Karte und ihre
+// automatischen Besuchs-Zaehlungen wurden entfernt.
+// Im Profil ist die bisher beste Tages-Streak dauerhaft sichtbar.
+const fpProfileBeforeDailyRecord=profileView;
+profileView=function(){
+ const info=dailyInfo();
+ const html=fpProfileBeforeDailyRecord();
+ const current=info.streak;
+ const days=info.best===1?'Tag':'Tage';
+ const card=`<div class="card fpProfileStreakRecord" aria-label="Dein bester Tages-Streak-Rekord">
+  <div class="row" style="align-items:center"><div><b>🏆 Dein Tages-Streak-Rekord</b>
+   <div class="sub" style="margin-top:6px">Höchste Serie beim Abholen der Tagesbelohnung</div></div><span style="font-size:32px">🔥</span></div>
+  <div class="value" style="font-size:30px;margin:12px 0 5px;font-weight:850">${info.best} ${days}</div>
+  <div class="sub">Aktuelle Streak: ${current} ${current===1?'Tag':'Tage'}</div>
+  <p class="sub" style="margin-top:11px">Dein Rekord bleibt bestehen, auch wenn du einen Tag verpasst.</p>
+ </div>`;
+ return html.replace('<form id="profileForm"',card+'<form id="profileForm"');
 };
-function fpVisitStreakResume(){
-  if(document.hidden)return;
-  if(fpVisitStreakCheck()&&s.tab==='home')render();
-}
-document.addEventListener('visibilitychange',fpVisitStreakResume);
-window.addEventListener('pageshow',fpVisitStreakResume);
-window.addEventListener('focus',fpVisitStreakResume);
-setInterval(fpVisitStreakResume,60000);
 
 // Erst jetzt rendern: Die neuen Statistik-Ansichten sind vollstaendig registriert.
 // Auch wenn der zuletzt geoeffnete Tab "Verlauf" war, erscheint sofort das Dashboard.
