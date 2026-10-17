@@ -131,7 +131,7 @@ document.addEventListener('change',e=>{if(e.target.id==='strengthSelect'){s.stre
 document.addEventListener('click',e=>{let b=e.target.closest('button');if(!b)return;if(b.dataset.theme){s.theme=b.dataset.theme;save();render();return}if(b.dataset.libfilter){s.libraryFilter=b.dataset.libfilter;render();return}if(b.dataset.useexercise){s.view='form';s.edit=null;s.tab='train';s.draftExercises=[{id:uid(),name:b.dataset.useexercise,sets:3,reps:10,weight:0}];render();return}if(b.dataset.rest!==undefined){s.restUntil=Date.now()+Number(b.dataset.rest)*1000;timerTick();return}if(b.dataset.setdone){let key=b.dataset.setdone;let [i,j]=key.split('-').map(Number);let w=find(s.active?.id);let ex=w?.exercises?.[i];if(ex){let x=s.trainingSets[key]||{reps:ex.reps,weight:ex.weight,done:false};x.done=!x.done;s.trainingSets[key]=x;render()}return}if(b.dataset.tab){s.tab=b.dataset.tab;s.view='';render();return}if(b.dataset.action==='new'){openForm();return}if(b.dataset.edit){openForm(b.dataset.edit);return}if(b.dataset.exremove!==undefined){s.draftExercises.splice(Number(b.dataset.exremove),1);render();return}if(b.dataset.start){let w=find(b.dataset.start);if(w){window.FP76Start?.();s.active={id:w.id,started:Date.now(),done:[],goalReached:false,stoppedAt:0};s.trainingSets={};s.restUntil=0;s.tab='train';s.view='';render()}return}if(b.dataset.done!==undefined&&s.active){let i=Number(b.dataset.done);s.active.done=s.active.done||[];s.active.done=s.active.done.includes(i)?s.active.done.filter(n=>n!==i):[...s.active.done,i];render();return}if(b.dataset.chart){s.weekType=b.dataset.chart;render();return}if(b.dataset.week){s.weekOffset=Math.max(-104,Math.min(0,(Number(s.weekOffset)||0)+Number(b.dataset.week)));render();return}if(b.dataset.weekhome){s.weekOffset=0;render();return}if(b.dataset.date){s.selectedDay=b.dataset.date;render();return}if(b.dataset.month){let [y,m]=s.calMonth.split('-').map(Number);let d=new Date(y,m-1+Number(b.dataset.month),1);s.calMonth=dkey(d).slice(0,7);s.selectedDay=dkey(d);render();return}if(b.dataset.removeplan){s.plans=s.plans.filter(p=>String(p.id)!==b.dataset.removeplan);save();render();return}if(b.dataset.removereminder){s.reminders=s.reminders.filter(x=>String(x.id)!==b.dataset.removereminder);save();render();return}switch(b.dataset.action){case 'showStrength':s.tab='progress';s.view='strength';render();break;case 'openProfile':s.tab='settings';s.view='profile';render();break;case 'backSettings':s.view='';render();break;case 'showRecords':s.tab='progress';s.view='records';render();break;case 'backProgress':s.view='';render();break;case 'openLibrary':s.tab='train';s.view='library';render();break;case 'openPlanner':s.tab='train';s.view='planner';render();break;case 'openCalendarPlanner':s.tab='calendar';s.view='planner';render();break;case 'backCalendar':s.tab='calendar';s.view='';render();break;case 'backTrain':s.tab='train';s.view='';render();break;case 'waterAdd':s.water[day()]=Math.min(20000,Number(s.water[day()]||0)+250);save();render();break;case 'waterMinus':s.water[day()]=Math.max(0,Number(s.water[day()]||0)-250);save();render();break;case 'addExercise':addExercise();break;case 'formcancel':s.view='';render();break;case 'deleteWorkout':if(confirm('Eigenes Training endgültig löschen?')){s.workouts=s.workouts.filter(w=>String(w.id)!==String(s.edit));s.view='';s.edit=null;save();render()}break;case 'cancel':if(confirm('Training verwerfen?')){s.active=null;render()}break;case 'finish':if(s.active){let w=find(s.active.id);let min=Math.max(1,Math.round((Date.now()-s.active.started)/60000));let kcal=Math.round((w?.kcal||0)*min/Math.max(1,w?.min||30));s.history.push({id:uid(),workoutId:s.active.id,name:w?.name||'Training',day:day(),min,kcal,exercises:(w?.exercises||[]).map((x,i)=>({...x,completedSets:Array.from({length:Number(x.sets)||0},(_,j)=>s.trainingSets[i+'-'+j]||{reps:x.reps,weight:x.weight,done:false}).filter(v=>v.done)}))});s.active=null;s.tab='progress';save();render();toast('Training gespeichert')}break;case 'export':doExport();break;case 'import':$('#importFile').click();break;}});
 document.addEventListener('input',e=>{if(e.target.id==='libSearch'){s.librarySearch=e.target.value;return}if(e.target.dataset.setfield){let key=e.target.dataset.setfield;let [i,j]=key.split('-').map(Number);let ex=find(s.active?.id)?.exercises?.[i];if(ex){let entry=s.trainingSets[key]||{reps:ex.reps,weight:ex.weight,done:false};let v=Number(e.target.value);if(Number.isFinite(v)&&v>=0&&v<=1000)entry[e.target.dataset.field]=v;s.trainingSets[key]=entry}return}let k=e.target.dataset.range;if(k){s[k]=Number(e.target.value);let el=$(`#v-${k}`);if(el)el.textContent=s[k];save()}});
 
-// FitnessPlus 4.1: virtueller Diamantboxen-Shop ohne reale Käufe.
+// FitnessPlus 4.1: virtueller Hantelboxen-Shop ohne reale Käufe.
 s.diamonds=Math.max(0,Number(s.diamonds)||0);
 s.rewardBoxes=Array.isArray(s.rewardBoxes)?s.rewardBoxes:[];
 s.rewardClaims=s.rewardClaims&&typeof s.rewardClaims==='object'?s.rewardClaims:{};
@@ -189,10 +189,10 @@ function handleGoalReached(){
  if(box)showEarnedBox(box);
  else toast('Trainingszeit geschafft!');
 }
-function rewardSummary(){return `<div class="card shopEntryCard"><div class="row"><div class="grow"><b>💎 Diamanten Store</b><div class="sub">Level-Booster kaufen und Freunde beschenken.</div></div><button class="btn" data-action="storeOpen">Zum Shop →</button></div></div>`}
+function rewardSummary(){return `<div class="card shopEntryCard"><div class="row"><div class="grow"><b>▰━▰ Hanteln Store</b><div class="sub">Level-Booster kaufen und Freunde beschenken.</div></div><button class="btn" data-action="storeOpen">Zum Shop →</button></div></div>`}
 const standardHome41=home;home=function(){return standardHome41()+rewardSummary()};
 const standardTrain41=train;train=function(){return standardTrain41()+(s.active?`<div class="card"><div class="row"><b>🎁 Übungsbelohnungen</b><span class="sub">${s.rewardBoxes.length} Boxen bereit</span></div><p class="sub">Hake alle Sätze einer Übung ab. Für jede vollständig abgeschlossene Übung gibt es eine Box.</p><button class="btn" data-action="rewardScreen">Boxen öffnen</button></div>`:'')};
-function rewardView(){return hdr('DEINE BELOHNUNGEN','Diamantboxen.')+`<button class="btn" data-action="rewardsBack">← Zurück</button><div class="card rewardHero"><div style="font-size:38px">💎</div><div class="huge">${s.diamonds} Diamanten</div><p class="sub">Virtuelle Sammelpunkte, kein echtes Geld und keine kostenpflichtigen Käufe.</p></div>`+(s.rewardBoxes.length?`<div class="card"><h2 class="section" style="margin:0 0 12px">Deine ungeöffneten Boxen</h2>${s.rewardBoxes.map((b,i)=>`<div class="item"><div class="symbol">🎁</div><div class="grow"><b>${safe(b.name)}</b><div class="sub">Übung abgeschlossen</div></div><button class="btn" data-openbox="${i}">Öffnen</button></div>`).join('')}</div>`:`<div class="card"><b>Im Moment keine Boxen</b><p class="sub">Starte ein Training mit Übungen und hake alle Sätze einer Übung ab.</p><button class="btn" data-action="rewardsTraining">Training ansehen</button></div>`)+(s.rewardHistory.length?`<div class="card"><b>Zuletzt gesammelt</b>${s.rewardHistory.slice(-10).reverse().map(x=>`<div class="item"><div class="grow"><b>${safe(x.name)}</b><div class="sub">${safe(x.date)}</div></div><b>+${x.amount} 💎</b></div>`).join('')}</div>`:'')}
+function rewardView(){return hdr('DEINE BELOHNUNGEN','Hantelboxen.')+`<button class="btn" data-action="rewardsBack">← Zurück</button><div class="card rewardHero"><div style="font-size:38px">▰━▰</div><div class="huge">${s.diamonds} Hanteln</div><p class="sub">Virtuelle Sammelpunkte, kein echtes Geld und keine kostenpflichtigen Käufe.</p></div>`+(s.rewardBoxes.length?`<div class="card"><h2 class="section" style="margin:0 0 12px">Deine ungeöffneten Boxen</h2>${s.rewardBoxes.map((b,i)=>`<div class="item"><div class="symbol">🎁</div><div class="grow"><b>${safe(b.name)}</b><div class="sub">Übung abgeschlossen</div></div><button class="btn" data-openbox="${i}">Öffnen</button></div>`).join('')}</div>`:`<div class="card"><b>Im Moment keine Boxen</b><p class="sub">Starte ein Training mit Übungen und hake alle Sätze einer Übung ab.</p><button class="btn" data-action="rewardsTraining">Training ansehen</button></div>`)+(s.rewardHistory.length?`<div class="card"><b>Zuletzt gesammelt</b>${s.rewardHistory.slice(-10).reverse().map(x=>`<div class="item"><div class="grow"><b>${safe(x.name)}</b><div class="sub">${safe(x.date)}</div></div><b>+${x.amount} ▰━▰</b></div>`).join('')}</div>`:'')}
 
 // V4.4: Auto reward animation on the last completed set. No reward button required.
 let rewardModal=null;
@@ -206,7 +206,7 @@ function rewardModalRender(){
    overlay.innerHTML=`<div class="fxCard fullReward chestScreen" role="dialog" aria-modal="true" aria-label="Belohnungstruhe"><div class="fxTag">TRAINING GESCHAFFT!</div><h2>Eine Truhe für dich!</h2><p class="fxSub">${safe(m.name)}</p><button type="button" class="chestTap" data-chestopen="${safe(String(m.id))}" aria-label="Truhe öffnen"><div class="chestArt" aria-hidden="true"><div class="glow"></div><div class="lid"></div><div class="base"></div><div class="band left"></div><div class="band right"></div><div class="strap"></div><div class="lock"><span>★</span></div><div class="bolt b1"></div><div class="bolt b2"></div><div class="bolt b3"></div><div class="bolt b4"></div><div class="shine s1"></div><div class="shine s2"></div><div class="shine s3"></div></div><span>ANTIPPEN ZUM ÖFFNEN</span></button><p class="fxSub">Welche Seltenheit ist drin?</p></div>`;
  }else{
    const rarity=safe(m.rarity||'Episch');
-   overlay.innerHTML=`<div class="fxCard fullReward chestResult rarity${rarity}" role="dialog" aria-modal="true" aria-label="Truhenbelohnung"><div class="fxTag">TRUHE GEÖFFNET!</div><div class="rarityText">${rarity.toUpperCase()}!</div><div class="fxEmojiWrap fxBurst"><span class="gem g1" style="--tx:-105px;--ty:-75px">💎</span><span class="gem g2" style="--tx:110px;--ty:-65px">💎</span><span class="gem g3" style="--tx:-90px;--ty:82px">💎</span><span class="gem g4" style="--tx:95px;--ty:80px">💎</span><div class="fxEmoji diamondPulse">${m.emoji}</div></div><div class="huge">+${Number(m.amount)||0} 💎</div><p class="fxSub">Dein Guthaben: ${Math.floor(s.diamonds)} Diamanten</p><button type="button" class="primary" data-chestclose="1">Weiter</button></div>`;
+   overlay.innerHTML=`<div class="fxCard fullReward chestResult rarity${rarity}" role="dialog" aria-modal="true" aria-label="Truhenbelohnung"><div class="fxTag">TRUHE GEÖFFNET!</div><div class="rarityText">${rarity.toUpperCase()}!</div><div class="fxEmojiWrap fxBurst"><span class="gem g1" style="--tx:-105px;--ty:-75px">▰━▰</span><span class="gem g2" style="--tx:110px;--ty:-65px">▰━▰</span><span class="gem g3" style="--tx:-90px;--ty:82px">▰━▰</span><span class="gem g4" style="--tx:95px;--ty:80px">▰━▰</span><div class="fxEmoji diamondPulse">${m.emoji}</div></div><div class="huge">+${Number(m.amount)||0} ▰━▰</div><p class="fxSub">Dein Guthaben: ${Math.floor(s.diamonds)} Hanteln</p><button type="button" class="primary" data-chestclose="1">Weiter</button></div>`;
  }
  overlay.classList.add('show');
 }
@@ -282,14 +282,14 @@ if(s.storeTheme!=='default'&&!s.storeOwned.includes(s.storeTheme))s.storeTheme='
 if(s.storeTitle&&!s.storeOwned.includes(s.storeTitle))s.storeTitle='';
 function storeScreen(){
  const categories=[['theme','🎨 Designs'],['title','🏅 Profil-Titel']];
- return hdr('DEIN FITNESSPLUS STORE','Gönn dir etwas!')+`<button class="btn" data-action="storeBack">← Zurück</button><div class="shopHero freshShop"><div class="shopKicker">DEIN DIAMANTEN-GUTHABEN</div><div class="balance">💎 ${Math.floor(s.diamonds)}</div><div class="small">Öffne Truhen und sammle Diamanten für neue Styles.</div></div>`+categories.map(([type,title])=>`<h2 class="section">${title}</h2><div class="shopGrid freshGrid">${storeItems.filter(i=>i.type===type).map(item=>{const owned=s.storeOwned.includes(item.id),equipped=item.type==='theme'?s.storeTheme===item.id:s.storeTitle===item.id;return `<div class="shopItem freshItem"><div class="shopSymbol">${item.emoji}</div><b>${item.name}</b><p>${item.desc}</p><button class="shopButton ${equipped?'equipped':''}" data-shopbuy="${item.id}" ${!owned&&s.diamonds<item.price?'disabled':''}>${equipped?'✓ Aktiv':owned?'Aktivieren':item.price+' 💎'}</button></div>`}).join('')}</div>`).join('')+`<div class="shopNotice">Alles nur für deine App: keine Echtgeldkäufe, keine Auszahlung und kein Geldwert.</div><button class="primary outline" data-shopreset="1">Standard-Design auswählen</button>`;
+ return hdr('DEIN FITNESSPLUS STORE','Gönn dir etwas!')+`<button class="btn" data-action="storeBack">← Zurück</button><div class="shopHero freshShop"><div class="shopKicker">DEIN DIAMANTEN-GUTHABEN</div><div class="balance">▰━▰ ${Math.floor(s.diamonds)}</div><div class="small">Öffne Truhen und sammle Hanteln für neue Styles.</div></div>`+categories.map(([type,title])=>`<h2 class="section">${title}</h2><div class="shopGrid freshGrid">${storeItems.filter(i=>i.type===type).map(item=>{const owned=s.storeOwned.includes(item.id),equipped=item.type==='theme'?s.storeTheme===item.id:s.storeTitle===item.id;return `<div class="shopItem freshItem"><div class="shopSymbol">${item.emoji}</div><b>${item.name}</b><p>${item.desc}</p><button class="shopButton ${equipped?'equipped':''}" data-shopbuy="${item.id}" ${!owned&&s.diamonds<item.price?'disabled':''}>${equipped?'✓ Aktiv':owned?'Aktivieren':item.price+' ▰━▰'}</button></div>`}).join('')}</div>`).join('')+`<div class="shopNotice">Alles nur für deine App: keine Echtgeldkäufe, keine Auszahlung und kein Geldwert.</div><button class="primary outline" data-shopreset="1">Standard-Design auswählen</button>`;
 }
 const renderBeforeStore=render;
 render=function(){renderBeforeStore();if(s.storeTheme){document.documentElement.dataset.shopTheme=s.storeTheme}else{delete document.documentElement.dataset.shopTheme}if(s.view==='store')$('#page').innerHTML=storeScreen();const avatar=document.querySelector('.avatar');const titleItem=storeItems.find(item=>item.id===s.storeTitle);if(avatar){avatar.title=titleItem?.name||'FitnessPlus';avatar.textContent=(s.profile.nickname||'FP').slice(0,2).toUpperCase();}document.querySelectorAll('.profileTitleTop').forEach(el=>el.remove()); };
 const homeBeforeStore=home;
 home=function(){return homeBeforeStore()};
 const rewardsBeforeStore=rewardView;
-rewardView=function(){return rewardsBeforeStore()+`<button class="primary" data-action="storeOpen">💎 Zum Diamanten-Store</button>`};
+rewardView=function(){return rewardsBeforeStore()+`<button class="primary" data-action="storeOpen">▰━▰ Zum Hanteln-Store</button>`};
 document.addEventListener('click',e=>{let b=e.target.closest('button');if(!b)return;
  if(b.dataset.action==='storeOpen'){e.preventDefault();e.stopImmediatePropagation();s.shopReturn=s.view==='rewards'?'rewards':'';s.view='store';render();return}
  if(b.dataset.action==='storeBack'){e.preventDefault();e.stopImmediatePropagation();s.view=s.shopReturn||'';render();return}
@@ -297,8 +297,8 @@ document.addEventListener('click',e=>{let b=e.target.closest('button');if(!b)ret
  if(!b.dataset.shopbuy)return;
  e.preventDefault();e.stopImmediatePropagation();const item=storeItems.find(x=>x.id===b.dataset.shopbuy);if(!item)return;
  if(!s.storeOwned.includes(item.id)){
-  if(s.diamonds<item.price){toast('Du hast noch nicht genug Diamanten.');return}
-  if(!confirm(item.name+' für '+item.price+' Diamanten kaufen?'))return;
+  if(s.diamonds<item.price){toast('Du hast noch nicht genug Hanteln.');return}
+  if(!confirm(item.name+' für '+item.price+' Hanteln kaufen?'))return;
   s.diamonds-=item.price;s.storeOwned.push(item.id);
  }
  if(item.type==='theme')s.storeTheme=item.id;else s.storeTitle=item.id;
@@ -454,23 +454,23 @@ storeScreen=function(){
  const active=s.levelBoostUses>0?`${s.levelBoostMultiplier}\u00d7 Fortschritt \u00b7 ${s.levelBoostUses} ${s.levelBoostUses===1?'Uebung':'Uebungen'} uebrig`:'Zurzeit kein Booster aktiv';
  const products=levelBoosters.filter(i=>i.active!==false);
  return hdr('DIAMANTEN STORE','Deine Power-Ups.')+`<button class="btn" data-action="storeBack">\u2190 Zurueck</button>
- <section class="shopHubHead"><div class="shopHubTop"><span>&#128142; DIAMANTEN STORE</span><span class="shopHubBalance">&#128142; ${Math.floor(s.diamonds)}</span></div><h2>Level schneller erreichen</h2><p>Trainiere und verstaerke deinen Fortschritt mit Boostern.</p><div class="shopHubStatus">&#127942; Level ${levelNumber()} <span>\u00b7</span> ${s.levelExercises%3}/3 bis zum naechsten Level</div><div class="shopHubStatus">&#9889; ${active}</div></section>
- <div class="shopQuickGrid"><button class="shopQuick giftQuick" data-giftmenu="1"><span>&#127873;</span><b>Geschenke</b><small>Diamanten verschenken</small></button></div>
+ <section class="shopHubHead"><div class="shopHubTop"><span>▰━▰ DIAMANTEN STORE</span><span class="shopHubBalance">▰━▰ ${Math.floor(s.diamonds)}</span></div><h2>Level schneller erreichen</h2><p>Trainiere und verstaerke deinen Fortschritt mit Boostern.</p><div class="shopHubStatus">&#127942; Level ${levelNumber()} <span>\u00b7</span> ${s.levelExercises%3}/3 bis zum naechsten Level</div><div class="shopHubStatus">&#9889; ${active}</div></section>
+ <div class="shopQuickGrid"><button class="shopQuick giftQuick" data-giftmenu="1"><span>&#127873;</span><b>Geschenke</b><small>Hanteln verschenken</small></button></div>
  <div class="shopSectionHead"><div><span class="eyebrow">POWER-UPS</span><h2 class="section">Level-Booster</h2></div><span class="shopCount">${products.length} Produkte</span></div>
  ${!fpShopReady?`<p class="sub" role="status">${safe(fpShopError||'Shop-Angebote werden geladen ...')}</p>`:''}
- <div class="boosterGrid shopNewGrid">${products.map(i=>{const discount=Number(i.discountPercent)||0;const crossed=discount>0?`<span class="sub" style="text-decoration:line-through;margin-right:8px">${Number(i.basePrice)} &#128142;</span><b style="color:#068a60">-${discount}%</b>`:'';return `<article class="boosterProduct shopNewProduct"><div class="boosterEmoji">${safe(i.emoji)}</div><div class="grow"><b>${safe(i.name)}</b><p>${safe(i.desc)}</p>${crossed?`<div>${crossed}</div>`:''}<strong>${Number(i.price)} &#128142;</strong></div><button class="shopButton" data-boostbuy="${safe(i.id)}" ${!fpShopReady||s.diamonds<i.price||s.levelBoostUses>0?'disabled':''}>${!fpShopReady?'Laden ...':s.levelBoostUses>0?'Booster aktiv':s.diamonds<i.price?'Zu wenig Diamanten':'Kaufen'}</button></article>`}).join('')||'<p class="sub">Zurzeit gibt es keine Booster im Shop.</p>'}</div>
- <p class="shopNotice">Alle Preise kommen direkt vom FitnessPlus-Server. Booster wirken nur bei abgeschlossenen Uebungen. Es handelt sich um virtuelle Diamanten ohne Geldwert.</p>`;
+ <div class="boosterGrid shopNewGrid">${products.map(i=>{const discount=Number(i.discountPercent)||0;const crossed=discount>0?`<span class="sub" style="text-decoration:line-through;margin-right:8px">${Number(i.basePrice)} ▰━▰</span><b style="color:#068a60">-${discount}%</b>`:'';return `<article class="boosterProduct shopNewProduct"><div class="boosterEmoji">${safe(i.emoji)}</div><div class="grow"><b>${safe(i.name)}</b><p>${safe(i.desc)}</p>${crossed?`<div>${crossed}</div>`:''}<strong>${Number(i.price)} ▰━▰</strong></div><button class="shopButton" data-boostbuy="${safe(i.id)}" ${!fpShopReady||s.diamonds<i.price||s.levelBoostUses>0?'disabled':''}>${!fpShopReady?'Laden ...':s.levelBoostUses>0?'Booster aktiv':s.diamonds<i.price?'Zu wenig Hanteln':'Kaufen'}</button></article>`}).join('')||'<p class="sub">Zurzeit gibt es keine Booster im Shop.</p>'}</div>
+ <p class="shopNotice">Alle Preise kommen direkt vom FitnessPlus-Server. Booster wirken nur bei abgeschlossenen Uebungen. Es handelt sich um virtuelle Hanteln ohne Geldwert.</p>`;
 };
 const levelStoreHome=home;
-home=function(){return levelStoreHome().replace('Hol dir neue Designs und Titel.','Hol dir Level-Booster.').replace('💎 Diamanten-Store','💎 Diamanten Store')};
+home=function(){return levelStoreHome().replace('Hol dir neue Designs und Titel.','Hol dir Level-Booster.').replace('▰━▰ Hanteln-Store','▰━▰ Hanteln Store')};
 document.addEventListener('click',e=>{
  const b=e.target.closest('button[data-boostbuy]');if(!b)return;
  e.preventDefault();e.stopImmediatePropagation();
  const i=levelBoosters.find(x=>x.id===b.dataset.boostbuy);if(!i)return;
  if(!fpShopReady){toast('Shoppreise werden geladen. Bitte warten.');fpShopRefresh();return}
  if(s.levelBoostUses>0){toast('Verbrauche zuerst deinen aktiven Booster.');return}
- if(s.diamonds<i.price){toast('Nicht genug Diamanten.');return}
- if(!confirm(i.name+' für '+i.price+' Diamanten kaufen?'))return;
+ if(s.diamonds<i.price){toast('Nicht genug Hanteln.');return}
+ if(!confirm(i.name+' für '+i.price+' Hanteln kaufen?'))return;
  s.diamonds-=i.price;s.levelBoostMultiplier=i.multiplier;s.levelBoostUses=i.uses;
  save();render();toast(i.name+' aktiviert!');
 },true);
@@ -503,11 +503,11 @@ function decodeGiftCode(code){
 }
 function giftScreen(){
  const friendOpts=s.friends.map(f=>`<option value="${safe(f.name)}">${safe(f.name)} · Lv. ${levelNumber(Number(f.exercises))}</option>`).join('');
- return hdr('GESCHENKE','Freunden Power schenken.')+`<button class="btn" data-giftback="1">← Zum Diamanten Store</button>
- <section class="boosterHero"><div class="shopKicker">DEINE DIAMANTEN</div><div class="boosterBalance">💎 ${Math.floor(s.diamonds)}</div><div class="boosterStatus">🎁 Wähle ein Geschenk, teile den Code per Nachricht.</div></section>
- <div class="card"><b>🎁 Geschenk vorbereiten</b><p class="sub">Ein Level-Booster wird von deinen Diamanten bezahlt. Dein Freund aktiviert ihn mit dem Geschenkcode in seiner App.</p>
+ return hdr('GESCHENKE','Freunden Power schenken.')+`<button class="btn" data-giftback="1">← Zum Hanteln Store</button>
+ <section class="boosterHero"><div class="shopKicker">DEINE DIAMANTEN</div><div class="boosterBalance">▰━▰ ${Math.floor(s.diamonds)}</div><div class="boosterStatus">🎁 Wähle ein Geschenk, teile den Code per Nachricht.</div></section>
+ <div class="card"><b>🎁 Geschenk vorbereiten</b><p class="sub">Ein Level-Booster wird von deinen Hanteln bezahlt. Dein Freund aktiviert ihn mit dem Geschenkcode in seiner App.</p>
  <label class="field" for="giftFriend">Für wen?</label><select class="input" id="giftFriend"><option value="">Freund auswählen</option>${friendOpts}</select>
- <label class="field" for="giftBooster">Welchen Booster schenken?</label><select class="input" id="giftBooster">${levelBoosters.map(i=>`<option value="${i.id}">${i.emoji} ${safe(i.name)} · ${i.price} 💎</option>`).join('')}</select>
+ <label class="field" for="giftBooster">Welchen Booster schenken?</label><select class="input" id="giftBooster">${levelBoosters.map(i=>`<option value="${i.id}">${i.emoji} ${safe(i.name)} · ${i.price} ▰━▰</option>`).join('')}</select>
  <button class="primary" data-giftbuy="1">Geschenk kaufen und Code erzeugen</button></div>
  ${s.giftsSent.length?`<div class="card"><b>📤 Deine Geschenkcodes</b>${s.giftsSent.slice().reverse().slice(0,12).map(g=>{const i=levelBoosters.find(x=>x.id===g.booster);return `<div class="giftEntry"><div><b>${i?i.emoji+' '+safe(i.name):'Level-Booster'}</b><div class="sub">Für ${safe(g.to)} · ${safe(g.created)}</div></div><button class="btn" data-giftcopy="${safe(g.id)}">Code kopieren</button></div>`}).join('')}</div>`:''}
  <div class="card"><b>📥 Geschenk einlösen</b><p class="sub">Geschenkcode von einem Freund einfügen:</p><textarea class="input" id="giftCodeInput" rows="4" placeholder="FPG58-..."></textarea><button class="primary" data-giftredeem="1">Geschenk einlösen</button>
@@ -530,8 +530,8 @@ document.addEventListener('click',async e=>{
   e.preventDefault();e.stopImmediatePropagation();
   const to=String($('#giftFriend')?.value||'').trim(),i=levelBoosters.find(x=>x.id===$('#giftBooster')?.value);
   if(!to||!s.friends.some(f=>f.name===to)){toast('Bitte zuerst einen Freund auswählen.');return}
-  if(!i||s.diamonds<i.price){toast('Nicht genug Diamanten.');return}
-  if(!confirm(i.name+' für '+to+' verschenken? Das kostet '+i.price+' Diamanten.'))return;
+  if(!i||s.diamonds<i.price){toast('Nicht genug Hanteln.');return}
+  if(!confirm(i.name+' für '+to+' verschenken? Das kostet '+i.price+' Hanteln.'))return;
   const g={id:uid()+'-'+Math.random().toString(36).slice(2,10),booster:i.id,to,from:s.profile.nickname||'FitnessPlus-Freund',created:day()};
   const customLabel=String($('#fp70BoosterLabel')?.value||'').trim();
   if(customLabel){try{g.customLabel=fp70Label(customLabel)}catch(err){toast(err.message);return}}
@@ -563,7 +563,7 @@ $('#importFile').addEventListener('change',async e=>{const f=e.target.files?.[0]
 
 
 
-// FitnessPlus 6.1: Diamanten Store ohne Truhen-Menue.
+// FitnessPlus 6.1: Hanteln Store ohne Truhen-Menue.
 // FitnessPlus 5.9 – täglich einmal einlösen, Bonus für aufeinanderfolgende Tage.
 s.dailyReward=s.dailyReward&&typeof s.dailyReward==='object'?s.dailyReward:{last:'',streak:0,total:0};
 // Streak zaehlt nur nach erfolgreicher Abholung der Tagesbelohnung.
@@ -595,20 +595,20 @@ function fpDailyRecordClaim(info,diamonds){
 function dailyCard(){
  const i=dailyInfo();
  const online=window.FP76Online===true;
- const amount=online?5:i.reward; // Der Online-Server vergibt aktuell 5 Diamanten je Tag.
+ const amount=online?5:i.reward; // Der Online-Server vergibt aktuell 5 Hanteln je Tag.
  const days=i.streak===1?'Tag':'Tage';
  const streakMessage=i.already?'Heute abgeholt!':i.streak?'Heute abholen und Streak auf '+i.nextStreak+' erhoehen!':'Hole deine Belohnung ab und starte deine Streak!';
  return `<div class="card dailyCard">
   <div class="row"><div><div class="dailyEyebrow">🎁 TAGESBELOHNUNG</div>
    <h2 class="dailyTitle">${i.already?'Heute abgeholt!':'Dein täglicher Bonus'}</h2>
-   <div class="sub">${i.already?'Komm morgen wieder!':'Hol dir '+amount+' Diamanten'}</div></div>
-   <div class="dailyGem">💎</div></div>
+   <div class="sub">${i.already?'Komm morgen wieder!':'Hol dir '+amount+' Hanteln'}</div></div>
+   <div class="dailyGem">▰━▰</div></div>
   <div class="fpRewardStreak" aria-label="Aktuelle Tages-Streak: ${i.streak} ${days}">
    <span class="fpRewardStreakFlame" aria-hidden="true">🔥</span>
    <div><b>Deine Tages-Streak: ${i.streak} ${days}</b><div class="sub">${streakMessage}</div></div>
   </div>
   <div class="dailyDays">${Array.from({length:7},(_,j)=>`<div class="dailyDay ${j<i.streak?'done':''}"><b>${j+1}</b><span>${j<i.streak?'✓':'◆'}</span></div>`).join('')}</div>
-  <button class="primary" data-dailyclaim="1" ${i.already?'disabled':''}>${i.already?'✓ Für heute eingelöst':'🎁 '+amount+' Diamanten abholen'}</button>
+  <button class="primary" data-dailyclaim="1" ${i.already?'disabled':''}>${i.already?'✓ Für heute eingelöst':'🎁 '+amount+' Hanteln abholen'}</button>
   <p class="sub">Deine Streak steigt nur, wenn du deine Tagesbelohnung abholst. Verpasst du einen Tag, beginnt sie wieder bei 1. Dein Streak-Rekord bleibt im Profil erhalten.</p>
  </div>`;
 }
@@ -635,7 +635,7 @@ document.addEventListener('click',e=>{
  s.diamonds+=i.reward;
  fpDailyRecordClaim(i,i.reward);
  save();render();
- toast('🎉 +'+i.reward+' Diamanten! 🔥 Streak: '+i.nextStreak+' Tage');
+ toast('🎉 +'+i.reward+' Hanteln! 🔥 Streak: '+i.nextStreak+' Tage');
 },true);
 const exportBeforeDaily=doExport;
 doExport=function(){const payload={app:'FitnessPlus',version:'6.0',exportedAt:new Date().toISOString(),data:{goalMinutes:s.goalMinutes,goalCalories:s.goalCalories,workouts:s.workouts,history:s.history,plans:s.plans,reminders:s.reminders,theme:s.theme,water:s.water,waterGoal:s.waterGoal,profile:s.profile,restDefault:s.restDefault,diamonds:s.diamonds,rewardBoxes:s.rewardBoxes,rewardHistory:s.rewardHistory,rewardClaims:s.rewardClaims,storeOwned:s.storeOwned,storeTheme:s.storeTheme,storeTitle:s.storeTitle,levelExercises:s.levelExercises,levelExerciseClaims:s.levelExerciseClaims,friends:s.friends,levelBoostMultiplier:s.levelBoostMultiplier,levelBoostUses:s.levelBoostUses,giftsSent:s.giftsSent,giftsRedeemed:s.giftsRedeemed,giftsInbox:s.giftsInbox,dailyReward:s.dailyReward}};const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});const link=document.createElement('a'),url=URL.createObjectURL(blob);link.href=url;link.download='FitnessPlus-Backup-'+day()+'.json';link.click();setTimeout(()=>URL.revokeObjectURL(url),2000)};
@@ -654,10 +654,10 @@ function decodeDiamondGiftCode(code){
 const giftScreenBeforeDev=giftScreen;
 giftScreen=function(){return giftScreenBeforeDev()};
 document.addEventListener('click',e=>{const b=e.target.closest('button[data-devredeem]');if(!b)return;
- e.preventDefault();e.stopImmediatePropagation();let gift;try{gift=decodeDiamondGiftCode($('#diamondGiftInput')?.value)}catch(_){toast('Ungültiger Diamanten-Code.');return}
+ e.preventDefault();e.stopImmediatePropagation();let gift;try{gift=decodeDiamondGiftCode($('#diamondGiftInput')?.value)}catch(_){toast('Ungültiger Hanteln-Code.');return}
  const name=String(s.profile.nickname||'').trim();if(name!==gift.to){toast('Code ist für '+gift.to+' bestimmt.');return}
  if(s.devDiamondRedeemed.includes(gift.id)){toast('Auf diesem Gerät bereits eingelöst.');return}
- if(!confirm(gift.amount+' Diamanten einlösen?'))return;s.devDiamondRedeemed.push(gift.id);s.diamonds+=gift.amount;save();render();toast('+'+gift.amount+' Diamanten erhalten!');
+ if(!confirm(gift.amount+' Hanteln einlösen?'))return;s.devDiamondRedeemed.push(gift.id);s.diamonds+=gift.amount;save();render();toast('+'+gift.amount+' Hanteln erhalten!');
 },true);
 const exportBeforePublic=doExport;
 doExport=function(){const payload={app:'FitnessPlus',version:'6.4',exportedAt:new Date().toISOString(),data:{goalMinutes:s.goalMinutes,goalCalories:s.goalCalories,workouts:s.workouts,history:s.history,plans:s.plans,reminders:s.reminders,theme:s.theme,water:s.water,waterGoal:s.waterGoal,profile:s.profile,restDefault:s.restDefault,diamonds:s.diamonds,rewardBoxes:s.rewardBoxes,rewardHistory:s.rewardHistory,rewardClaims:s.rewardClaims,storeOwned:s.storeOwned,storeTheme:s.storeTheme,storeTitle:s.storeTitle,levelExercises:s.levelExercises,levelExerciseClaims:s.levelExerciseClaims,friends:s.friends,levelBoostMultiplier:s.levelBoostMultiplier,levelBoostUses:s.levelBoostUses,giftsSent:s.giftsSent,giftsRedeemed:s.giftsRedeemed,giftsInbox:s.giftsInbox,dailyReward:s.dailyReward,devDiamondRedeemed:s.devDiamondRedeemed}};const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});const a=document.createElement('a'),url=URL.createObjectURL(blob);a.href=url;a.download='FitnessPlus-Backup-'+day()+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),2000)};
@@ -784,17 +784,17 @@ function fpWheelSvg(sectors){
   const path=`M0 0 L${a.x.toFixed(3)} ${a.y.toFixed(3)} A${r} ${r} 0 ${large} 1 ${b.x.toFixed(3)} ${b.y.toFixed(3)} Z`;
   return `<path d="${path}" fill="${part.color}" stroke="#fff" stroke-width="2.4" stroke-linejoin="round"/>`+
    `<text x="${label.x.toFixed(2)}" y="${label.y.toFixed(2)}" fill="#fff" stroke="#243049" stroke-opacity=".32" stroke-width="2.5" paint-order="stroke" text-anchor="middle" dominant-baseline="central" font-size="${size}" font-weight="800">${part.diamonds}</text>`+
-   (part.angle>=17?`<text x="${label.x.toFixed(2)}" y="${(label.y+size*1.10).toFixed(2)}" text-anchor="middle" dominant-baseline="central" font-size="${Math.max(10,size-1)}">💎</text>`:'');
+   (part.angle>=17?`<text x="${label.x.toFixed(2)}" y="${(label.y+size*1.10).toFixed(2)}" text-anchor="middle" dominant-baseline="central" font-size="${Math.max(10,size-1)}">▰━▰</text>`:'');
  }).join('');
  return `<svg viewBox="-155 -155 310 310" class="fp-wheel-svg" role="img" aria-label="Glücksrad mit ${sectors.length} Gewinnen">${wedges}<circle cx="0" cy="0" r="146" fill="none" stroke="#fef3c7" stroke-width="4"/></svg>`;
 }
 function fpWheelWidget(){
  const sectors=fpWheelSectors();
  if(sectors.length<2)return '<p class="sub">Die Glücksrad-Gewinne werden geladen.</p>';
- const wins=sectors.map(p=>`<div class="fp-wheel-odds-entry" role="listitem"><span class="fp-wheel-swatch" style="background:${p.color}"></span><span class="fp-wheel-prize">${p.diamonds} 💎</span><strong>${fpWheelPercent(p.percentage)}</strong></div>`).join('');
+ const wins=sectors.map(p=>`<div class="fp-wheel-odds-entry" role="listitem"><span class="fp-wheel-swatch" style="background:${p.color}"></span><span class="fp-wheel-prize">${p.diamonds} ▰━▰</span><strong>${fpWheelPercent(p.percentage)}</strong></div>`).join('');
  return `<div class="fp-wheel-wrap"><div class="fp-wheel-rotator" id="fpWheelSpinner" style="transform:rotate(${fpWheelRotation}deg)">${fpWheelSvg(sectors)}</div><div class="fp-wheel-pointer" aria-hidden="true"></div><div class="fp-wheel-center" aria-hidden="true">★</div></div>`+
-  `<div class="fp-wheel-odds"><b>💎 Gewinne & Gewinnchancen</b><div class="fp-wheel-odds-grid" role="list">${wins}</div><div class="sub" style="margin-top:8px">Die Feldgrößen zeigen die Gewinnchancen. Prozentangaben sind gerundet.</div></div>`+
-  `<div id="fpWheelSpinResult" class="fp-wheel-result" role="status" aria-live="polite">${fpWheelAnimating?'🎡 Das Glücksrad dreht sich …':fpWheelLastWin!==null?'🎉 Du hast '+Number(fpWheelLastWin)+' 💎 gewonnen!':''}</div>`;
+  `<div class="fp-wheel-odds"><b>▰━▰ Gewinne & Gewinnchancen</b><div class="fp-wheel-odds-grid" role="list">${wins}</div><div class="sub" style="margin-top:8px">Die Feldgrößen zeigen die Gewinnchancen. Prozentangaben sind gerundet.</div></div>`+
+  `<div id="fpWheelSpinResult" class="fp-wheel-result" role="status" aria-live="polite">${fpWheelAnimating?'🎡 Das Glücksrad dreht sich …':fpWheelLastWin!==null?'🎉 Du hast '+Number(fpWheelLastWin)+' ▰━▰ gewonnen!':''}</div>`;
 }
 function fpWheelStyles(){
  if(document.getElementById('fpWheelStyles'))return;
@@ -854,10 +854,10 @@ function eventView(){
   html+='<div class="card"><h2>🎡 Dein Glücksrad</h2><p class="sub">Heute noch '+spinsLeft+' von '+fpWheelConfig.maxSpinsPerDay+' Drehungen übrig. Neuer Tag ab 00:00 Uhr UTC.</p>'+fpWheelWidget()+'<button class="primary" data-eventspin="1" '+(used||fpEventBusy?'disabled':'')+'>'+(fpWheelAnimating?'🎡 Das Rad dreht sich …':used?'✓ Für heute alle Drehungen verbraucht':fpEventAccount.authenticated?'🎡 Jetzt drehen':'🔑 Anmelden und Glücksrad drehen')+'</button></div>';
  }
  const gift=Math.floor(Number(e.giftDiamonds)||0);
- if(gift>0)html+='<div class="card"><b>🎁 Geschenk für alle</b><p class="sub">'+gift+' 💎 einmalig pro Event abholen.</p><button class="primary" data-eventgift="1" '+(fpEventAccount.giftClaimed?'disabled':'')+'>'+(fpEventAccount.giftClaimed?'✓ Geschenk abgeholt':fpEventAccount.authenticated?'🎁 '+gift+' Diamanten einlösen':'🔑 Anmelden und Geschenk einlösen')+'</button></div>';
+ if(gift>0)html+='<div class="card"><b>🎁 Geschenk für alle</b><p class="sub">'+gift+' ▰━▰ einmalig pro Event abholen.</p><button class="primary" data-eventgift="1" '+(fpEventAccount.giftClaimed?'disabled':'')+'>'+(fpEventAccount.giftClaimed?'✓ Geschenk abgeholt':fpEventAccount.authenticated?'🎁 '+gift+' Hanteln einlösen':'🔑 Anmelden und Geschenk einlösen')+'</button></div>';
  if(e.season){
   html+='<div class="card"><b>🏆 Saison-Pass</b><p class="sub">'+fpEventAccount.progress+' abgeschlossene Online-Übungen seit Eventbeginn</p>'+
-   (fpEventAccount.tiers.length?fpEventAccount.tiers.map(t=>'<div class="item"><div class="grow"><b>'+Number(t.at)+' Übungen</b><div class="sub">'+Number(t.diamonds)+' 💎</div></div><button class="btn" data-seasonclaim="'+Number(t.at)+'" '+(t.claimed||fpEventAccount.progress<Number(t.at)?'disabled':'')+'>'+(t.claimed?'✓ Abgeholt':fpEventAccount.progress<Number(t.at)?'Noch gesperrt':'Einlösen')+'</button></div>').join(''):'<p class="sub">Melde dich an, um deine Stufen zu sehen.</p>')+'</div>';
+   (fpEventAccount.tiers.length?fpEventAccount.tiers.map(t=>'<div class="item"><div class="grow"><b>'+Number(t.at)+' Übungen</b><div class="sub">'+Number(t.diamonds)+' ▰━▰</div></div><button class="btn" data-seasonclaim="'+Number(t.at)+'" '+(t.claimed||fpEventAccount.progress<Number(t.at)?'disabled':'')+'>'+(t.claimed?'✓ Abgeholt':fpEventAccount.progress<Number(t.at)?'Noch gesperrt':'Einlösen')+'</button></div>').join(''):'<p class="sub">Melde dich an, um deine Stufen zu sehen.</p>')+'</div>';
  }
  return html+'<p class="sub">Alle Event-Belohnungen werden einmalig über dein Online-Konto vergeben.</p>';
 }
@@ -899,8 +899,8 @@ document.addEventListener('click',async e=>{
   }
   await refreshEvents();
   render();
-  if(isWheel)toast('🎡 Gewonnen: +'+result.diamonds+' 💎!');
-  else toast('🎁 Eventbelohnung: +'+result.diamonds+' 💎!');
+  if(isWheel)toast('🎡 Gewonnen: +'+result.diamonds+' ▰━▰!');
+  else toast('🎁 Eventbelohnung: +'+result.diamonds+' ▰━▰!');
  }catch(err){fpWheelAnimating=false;toast(err.message||'Einlösen fehlgeschlagen');await refreshEvents();}
  finally{fpEventBusy=false;if(s.view==='events')render();}
 },true);
@@ -925,7 +925,7 @@ function diamondGiftPublicLink(g){
 }
 async function shareDiamondGift(g){
  const link=diamondGiftPublicLink(g);
- try{if(navigator.share){await navigator.share({title:'FitnessPlus Diamanten-Geschenk',text:'Ich schenke dir '+g.amount+' Diamanten in FitnessPlus!',url:link});return}}
+ try{if(navigator.share){await navigator.share({title:'FitnessPlus Hanteln-Geschenk',text:'Ich schenke dir '+g.amount+' Hanteln in FitnessPlus!',url:link});return}}
  catch(e){if(e&&e.name==='AbortError')return}
  try{await navigator.clipboard.writeText(link);toast('Geschenkcode kopiert!')}
  catch(_){prompt('Geschenkcode teilen:',link)}
@@ -944,16 +944,16 @@ function renderDiamondGiftLanding(){
  if(!pendingDiamondLink){el.innerHTML='<p class="sub">Noch kein Geschenkcode geöffnet.</p>';return}
  const g=pendingDiamondLink;
  const redeemed=(s.devDiamondRedeemed||[]).includes(g.id);
- el.innerHTML='<p><b>'+safe(String(g.amount))+' 💎</b> von '+safe(String(g.from||'FitnessPlus'))+' an '+safe(g.to)+'</p>'+
- (redeemed?'<p class="sub">Auf diesem Gerät bereits eingelöst.</p>':'<button class="primary" data-diamond-link-claim="1">Diamanten-Geschenk annehmen</button>');
+ el.innerHTML='<p><b>'+safe(String(g.amount))+' ▰━▰</b> von '+safe(String(g.from||'FitnessPlus'))+' an '+safe(g.to)+'</p>'+
+ (redeemed?'<p class="sub">Auf diesem Gerät bereits eingelöst.</p>':'<button class="primary" data-diamond-link-claim="1">Hanteln-Geschenk annehmen</button>');
 }
 function redeemDiamondLink(){
  const gift=pendingDiamondLink;if(!gift)return;
  const name=String(s.profile.nickname||'').trim();
  if(name!==gift.to){toast('Geschenk ist für '+gift.to+' bestimmt. Profilnamen prüfen.');return}
  if(s.devDiamondRedeemed.includes(gift.id)){toast('Auf diesem Gerät bereits eingelöst.');return}
- if(!confirm(gift.amount+' Diamanten von '+(gift.from||'FitnessPlus')+' einlösen?'))return;
- s.devDiamondRedeemed.push(gift.id);s.diamonds+=gift.amount;pendingDiamondLink=null;save();render();toast('+'+gift.amount+' Diamanten erhalten!');
+ if(!confirm(gift.amount+' Hanteln von '+(gift.from||'FitnessPlus')+' einlösen?'))return;
+ s.devDiamondRedeemed.push(gift.id);s.diamonds+=gift.amount;pendingDiamondLink=null;save();render();toast('+'+gift.amount+' Hanteln erhalten!');
 }
 const renderWithDiamondGift=render;
 render=function(){renderWithDiamondGift();renderDiamondGiftLanding()};
@@ -972,8 +972,8 @@ friendLinkPanel=function(){return `<div class="card"><b>👥 Freunde per Code hi
 function fp70GiftCode(g,label,type){return 'FPG7-'+fp70Label(label)+'-'+fp70Encode({v:1,type,id:g.id,to:g.to,from:g.from,amount:g.amount||0,booster:g.booster||'',created:g.created})}
 function fp70ReadGift(text){const m=String(text||'').trim().match(/^FPG7-([A-Z0-9]{3,18})-([A-Za-z0-9_-]+)$/i);if(!m)throw Error('Ungültiger Geschenk-Code.');const g=fp70Decode(m[2]);if(g.v!==1||!['diamonds','booster'].includes(g.type)||typeof g.id!=='string'||g.id.length<8||g.id.length>100||typeof g.to!=='string'||g.to.length>32||typeof g.from!=='string'||g.from.length>32)throw Error('Ungültiges Geschenk.');if(g.type==='diamonds'&&(!Number.isInteger(g.amount)||g.amount<1||g.amount>100000))throw Error('Ungültiger Betrag.');if(g.type==='booster'&&!levelBoosters.some(x=>x.id===g.booster))throw Error('Unbekannter Booster.');return g;}
 const fp70OldGiftScreen=giftScreen;
-giftScreen=function(){return fp70OldGiftScreen()+`<div class="card"><b>🔤 Geschenke mit Wunsch-Code</b><p class="sub">Booster oder Diamanten per Code einlösen. Der Code enthält den selbst gewählten Namen plus die Geschenkdetails.</p><textarea class="input" id="fp70GiftInput" rows="3" placeholder="FPG7-GESCHENK-..."></textarea><button class="primary" data-fp70giftredeem="1">Wunsch-Code einlösen</button></div>`};
-function fp70GiftRedeem(g){const me=String(s.profile.nickname||'').trim();if(me!==g.to)throw Error('Geschenk ist für '+g.to+'. Profilnamen prüfen.');if(g.type==='diamonds'){s.devDiamondRedeemed=Array.isArray(s.devDiamondRedeemed)?s.devDiamondRedeemed:[];if(s.devDiamondRedeemed.includes(g.id))throw Error('Auf diesem Gerät schon eingelöst.');s.devDiamondRedeemed.push(g.id);s.diamonds+=g.amount;save();render();toast('+'+g.amount+' Diamanten erhalten!');return}
+giftScreen=function(){return fp70OldGiftScreen()+`<div class="card"><b>🔤 Geschenke mit Wunsch-Code</b><p class="sub">Booster oder Hanteln per Code einlösen. Der Code enthält den selbst gewählten Namen plus die Geschenkdetails.</p><textarea class="input" id="fp70GiftInput" rows="3" placeholder="FPG7-GESCHENK-..."></textarea><button class="primary" data-fp70giftredeem="1">Wunsch-Code einlösen</button></div>`};
+function fp70GiftRedeem(g){const me=String(s.profile.nickname||'').trim();if(me!==g.to)throw Error('Geschenk ist für '+g.to+'. Profilnamen prüfen.');if(g.type==='diamonds'){s.devDiamondRedeemed=Array.isArray(s.devDiamondRedeemed)?s.devDiamondRedeemed:[];if(s.devDiamondRedeemed.includes(g.id))throw Error('Auf diesem Gerät schon eingelöst.');s.devDiamondRedeemed.push(g.id);s.diamonds+=g.amount;save();render();toast('+'+g.amount+' Hanteln erhalten!');return}
 if(s.giftsRedeemed.includes(g.id))throw Error('Auf diesem Gerät schon eingelöst.');s.giftsRedeemed.push(g.id);s.giftsInbox.push({id:g.id,booster:g.booster,from:g.from,activated:false});const active=activateGiftIfReady();save();render();toast(active?'Booster aktiviert!':'Booster als Geschenk gespeichert!')}
 // Store a user-chosen label per generated present; all transfers use codes.
 const fp70OriginalGift=giftScreen;
@@ -1012,8 +1012,8 @@ function fp72LevelRedeem(){
 }
 const fp72BeforeGift=giftScreen;
 giftScreen=function(){return fp72BeforeGift()+`<div class="card"><b>🏆 Level-Änderung einlösen</b><p class="sub">Hast du vom Administrator einen Level-Code erhalten? Füge ihn hier ein. Ein Zurücksetzen auf Level 1 ist ebenfalls möglich.</p><textarea id="fp72LevelInput" class="input" rows="3" placeholder="FPL72-..."></textarea><button class="primary" data-fp72levelredeem="1">Level-Code einlösen</button></div>`};
-// Online-Geschenke: nur direkte Diamantenuebertragung, keine Codes.
-giftScreen=function(){return hdr('GESCHENKE','Diamanten direkt an Freunde senden.')+`<button class="btn" data-giftback="1">← Zum Diamantenshop</button><div class="card"><b>🎁 Geschenk an Freunde senden</b><p class="sub">Geschenke werden geladen ...</p></div>`};
+// Online-Geschenke: nur direkte Hantelnuebertragung, keine Codes.
+giftScreen=function(){return hdr('GESCHENKE','Hanteln direkt an Freunde senden.')+`<button class="btn" data-giftback="1">← Zum Hantelnshop</button><div class="card"><b>🎁 Geschenk an Freunde senden</b><p class="sub">Geschenke werden geladen ...</p></div>`};
 document.addEventListener('click',e=>{const b=e.target.closest('button[data-fp72levelredeem]');if(!b)return;e.preventDefault();e.stopImmediatePropagation();try{fp72LevelRedeem()}catch(err){toast(err.message||'Code ungültig')}},true);
 
 
@@ -1117,7 +1117,7 @@ window.addEventListener('click',async e=>{
  if(b.dataset.boostbuy!==undefined){e.preventDefault();e.stopPropagation();e.stopImmediatePropagation();
   const item=levelBoosters.find(i=>i.id===b.dataset.boostbuy);if(!item)return;
   if(!fpShopReady){toast('Shop wird geladen. Bitte kurz warten.');fpShopRefresh();return;}
-  if(!confirm(item.name+' für '+item.price+' Diamanten online kaufen?'))return;
+  if(!confirm(item.name+' für '+item.price+' Hanteln online kaufen?'))return;
   try{const x=await req('/api/game/shop/buy',{item:item.id,expectedPrice:item.price});s.diamonds=x.user.diamonds;s.levelBoostUses=x.booster.uses;s.levelBoostMultiplier=x.booster.multiplier;save();render();toast(item.name+' online aktiviert!')}
   catch(err){toast(err.message);fpShopRefresh()}return;
  }
@@ -1128,7 +1128,7 @@ window.addEventListener('click',async e=>{
    s.diamonds=x.user.diamonds;
    fpDailyRecordClaim(dailyInfo(),x.diamonds);
    save();render();
-   toast('🎉 +'+x.diamonds+' Diamanten! 🔥 Streak: '+s.dailyReward.streak+' Tage');
+   toast('🎉 +'+x.diamonds+' Hanteln! 🔥 Streak: '+s.dailyReward.streak+' Tage');
   }catch(err){b.disabled=false;toast(err.message)}return;
  }
  // Offline gift/event claims remain local in legacy versions; disable for signed-in users.
@@ -1347,7 +1347,7 @@ async function fpBroadcastRefresh(){
    const current=pending[0];
    if(fpBroadcastLastSeen!==current.id){
     fpBroadcastLastSeen=current.id;
-    try{if(localStorage.getItem(FP_BROADCAST_SEEN)!==current.id){localStorage.setItem(FP_BROADCAST_SEEN,current.id);toast('💎 Neue Diamanten von FitnessPlus!')}}catch(_e){}
+    try{if(localStorage.getItem(FP_BROADCAST_SEEN)!==current.id){localStorage.setItem(FP_BROADCAST_SEEN,current.id);toast('▰━▰ Neue Hanteln von FitnessPlus!')}}catch(_e){}
    }
   }
   fpBroadcastUpdateBar();
@@ -1363,20 +1363,20 @@ function fpBroadcastUpdateBar(){
   if(banner)banner.remove();return;
  }
  if(!banner){banner=document.createElement('button');banner.id='fpBroadcastGiftBanner';banner.type='button';document.body.append(banner)}
- banner.textContent='💎 '+gift.diamonds+' Diamanten fuer dich! Jetzt abholen ›';
+ banner.textContent='▰━▰ '+gift.diamonds+' Hanteln fuer dich! Jetzt abholen ›';
  const otherBanner=!!document.getElementById('fpOnlineEventBanner');
  Object.assign(banner.style,{position:'fixed',left:'12px',right:'12px',bottom:otherBanner?'calc(141px + env(safe-area-inset-bottom, 0px))':'calc(83px + env(safe-area-inset-bottom, 0px))',maxWidth:'520px',margin:'0 auto',zIndex:'1002',width:'calc(100% - 24px)',border:'0',borderRadius:'14px',padding:'12px 14px',background:'#087a67',color:'#fff',fontWeight:'750',fontSize:'13px',boxShadow:'0 6px 20px rgba(0,0,0,.25)',cursor:'pointer'});
  banner.onclick=()=>{s.tab='home';s.view='broadcastgifts';render()};
 }
 function fpBroadcastView(){
- let html=hdr('FITNESSPLUS DIAMANTEN','Diamanten fuer dich.')+'<button class="btn" data-fpbroadcastback="1">← Zurueck</button>';
- if(!fpBroadcastGifts.length)return html+'<div class="card"><b>Zurzeit keine Diamanten-Aktionen</b><p class="sub">Neue Diamanten-Aktionen aus der Admin-App erscheinen hier.</p><button class="btn" data-fpbroadcastrefresh="1">Aktualisieren</button></div>';
- return html+fpBroadcastGifts.map(g=>'<div class="card"><div style="font-size:36px">🎁</div><b>'+safe(g.title)+'</b><p class="sub">'+safe(g.message||'Diamanten von FitnessPlus')+'</p><div class="huge">'+Number(g.diamonds)+' 💎</div><button class="primary" data-fpbroadcastclaim="'+safe(g.id)+'" '+(g.claimed||!g.active?'disabled':'')+'>'+(g.claimed?'✓ Bereits abgeholt':g.active?'💎 Diamanten abholen':'Nicht mehr verfuegbar')+'</button></div>').join('')+'<button class="btn" data-fpbroadcastrefresh="1">↻ Aktualisieren</button>';
+ let html=hdr('FITNESSPLUS DIAMANTEN','Hanteln fuer dich.')+'<button class="btn" data-fpbroadcastback="1">← Zurueck</button>';
+ if(!fpBroadcastGifts.length)return html+'<div class="card"><b>Zurzeit keine Hanteln-Aktionen</b><p class="sub">Neue Hanteln-Aktionen aus der Admin-App erscheinen hier.</p><button class="btn" data-fpbroadcastrefresh="1">Aktualisieren</button></div>';
+ return html+fpBroadcastGifts.map(g=>'<div class="card"><div style="font-size:36px">🎁</div><b>'+safe(g.title)+'</b><p class="sub">'+safe(g.message||'Hanteln von FitnessPlus')+'</p><div class="huge">'+Number(g.diamonds)+' ▰━▰</div><button class="primary" data-fpbroadcastclaim="'+safe(g.id)+'" '+(g.claimed||!g.active?'disabled':'')+'>'+(g.claimed?'✓ Bereits abgeholt':g.active?'▰━▰ Hanteln abholen':'Nicht mehr verfuegbar')+'</button></div>').join('')+'<button class="btn" data-fpbroadcastrefresh="1">↻ Aktualisieren</button>';
 }
 const fpBroadcastPreviousHome=home;
 home=function(){
  const count=fpBroadcastGifts.filter(g=>g.active&&!g.claimed).length;
- return fpBroadcastPreviousHome()+(fpBroadcastGifts.length?'<div class="card"><div class="row"><div><b>💎 Diamanten fuer dich</b><div class="sub">'+(count?count+' Diamanten-Aktion'+(count===1?'':'en')+' bereit zum Abholen':'Alle aktuellen Diamanten abgeholt')+'</div></div><button class="btn" data-fpbroadcastopen="1">Ansehen →</button></div></div>':'');
+ return fpBroadcastPreviousHome()+(fpBroadcastGifts.length?'<div class="card"><div class="row"><div><b>▰━▰ Hanteln fuer dich</b><div class="sub">'+(count?count+' Hanteln-Aktion'+(count===1?'':'en')+' bereit zum Abholen':'Alle aktuellen Hanteln abgeholt')+'</div></div><button class="btn" data-fpbroadcastopen="1">Ansehen →</button></div></div>':'');
 };
 const fpBroadcastPreviousRender=render;
 render=function(){fpBroadcastPreviousRender();if(s.view==='broadcastgifts')$('#page').innerHTML=fpBroadcastView();fpBroadcastUpdateBar()};
@@ -1397,7 +1397,7 @@ document.addEventListener('click',async e=>{
   // Der Server ist fuer Guthaben und Einmal-Einloesung verantwortlich.
   await fpBroadcastRefresh();
   window.FP76Refresh?.();
-  render();toast('🎉 +'+result.diamonds+' 💎 von FitnessPlus erhalten!');
+  render();toast('🎉 +'+result.diamonds+' ▰━▰ von FitnessPlus erhalten!');
  }catch(err){toast(err.message||'Geschenk konnte nicht abgeholt werden');await fpBroadcastRefresh();render()}
  finally{fpBroadcastClaimBusy=false}
 },true);
