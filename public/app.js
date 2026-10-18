@@ -781,7 +781,7 @@ setTimeout(init,750);setInterval(()=>{if(!queued&&!busy)init()},45000);
 (()=>{'use strict';
 let runId='',pending=new Set(),starting=null;
 const req=async (url,data)=>{let r=await fetch(url,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(data||{})});let x=await r.json();if(!r.ok)throw Error(x.error||'Server nicht erreichbar');return x};
-const status=async()=>{try{let r=await fetch('/api/game',{credentials:'same-origin',cache:'no-store'});if(!r.ok)return;let x=await r.json();s.diamonds=x.user.diamonds;s.levelExercises=x.user.xp;s.levelBoostMultiplier=x.booster.multiplier;s.levelBoostUses=x.booster.uses;s.rewardBoxes=x.chests.map(t=>({id:t.id,name:'Online-Truhe'}));render()}catch{}};
+const status=async()=>{try{let r=await fetch('/api/game',{credentials:'same-origin',cache:'no-store'});if(!r.ok)return;let x=await r.json();s.diamonds=x.user.diamonds;s.levelExercises=x.user.xp;s.levelBoostMultiplier=x.booster.multiplier;s.levelBoostUses=x.booster.uses;s.rewardBoxes=x.chests.map(t=>({id:t.id,name:'Online-Truhe'}));render();window.FPBoosterRefreshBadge?.(x.booster)}catch{}};
 window.FP76Refresh=status;
 window.FP76Start=durationMinutes=>{
  if(!window.FP76Online)return;
@@ -820,7 +820,7 @@ const openCloudChest=async id=>{
   s.rewardBoxes=s.rewardBoxes.filter(b=>String(b.id)!==String(id));
   s.rewardHistory.push({name:'Online-Truhe',date:day(),amount:x.diamonds,rarity:x.rarity});
   rewardModal={mode:'opened',name:'Online-Truhe',amount:x.diamonds,rarity:x.rarity,emoji:x.rarity==='Episch'?'💠':x.rarity==='Mythisch'?'🔮':'👑'};
-  save();render();rewardModalRender();
+  save();render();rewardModalRender();void status();
  }catch(e){toast(e.message)}
 };
 // Window capture handles game actions before legacy local-only listeners.
