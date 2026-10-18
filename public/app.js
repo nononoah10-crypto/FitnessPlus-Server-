@@ -1070,7 +1070,7 @@ render=function(){
   return `<section class="card" id="fp-body-card" style="margin:16px 0 20px">
   <div class="row"><div><b style="font-size:20px">🧍 Mein Körpertraining</b><p class="sub" style="margin:6px 0 0">Wo du bereits trainiert hast</p></div><span class="sub">${total}/6 Bereiche</span></div>
   <p class="sub" style="margin:12px 0">Tippe auf einen markierten Körperbereich. <span style="color:#118b77;font-weight:800">● Grün</span> = dokumentierte Sätze, Grau = noch kein zugeordnetes Training.</p>
-  <div style="background:linear-gradient(180deg,#eef8f5,#f8fbfa);padding:12px 6px;border-radius:20px;text-align:center"><canvas id="fp-body-3d" width="360" height="440" aria-label="Drehbare dreidimensionale Körperfigur" style="width:100%;max-width:360px;aspect-ratio:9/11;touch-action:none;border-radius:16px"></canvas><div style="display:flex;justify-content:center;gap:10px;align-items:center"><button type="button" class="btn" data-fpbodyturn="-1">↶</button><span class="sub">Mit Finger drehen</span><button type="button" class="btn" data-fpbodyturn="1">↷</button></div></div>
+  <div style="background:linear-gradient(180deg,#eef8f5,#f8fbfa);padding:12px 6px;border-radius:20px;text-align:center"><div id="fp-body-3d" role="group" aria-label="Drehbare 3D-Menschenfigur" style="width:100%;max-width:360px;aspect-ratio:9/11;margin:0 auto;touch-action:none;border-radius:16px"></div><div style="display:flex;justify-content:center;gap:10px;align-items:center"><button type="button" class="btn" data-fpbodyturn="-1">↶</button><span class="sub">Mit Finger drehen</span><button type="button" class="btn" data-fpbodyturn="1">↷</button></div></div>
   <div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:12px">${fpBodyGroups.map(g=>`<button type="button" data-fpbody="${g}" style="border:1px solid ${selected===g?'#089c84':'#d4e3df'};border-radius:18px;padding:8px 10px;font-size:12px;font-weight:750;color:${selected===g?'#fff':'#193b35'};background:${selected===g?'#078f7c':'#f0f8f5'}">${safe(g)} · ${data[g].workouts.size}×</button>`).join('')}</div>
   ${detail?`<div style="margin-top:15px;padding:14px;background:var(--surface2,#f2f8f6);border-radius:14px"><b>${safe(selected)}: ${detail.workouts.size} Trainingseinträge · ${detail.sets} Sätze</b><div class="sub" style="margin-top:5px">${detail.workouts.size} Trainingseinträge · Zuletzt ${fmtDate(detail.last)}</div>${[...detail.exercises].sort((a,b)=>b[1]-a[1]).map(([n,c])=>`<div style="display:flex;justify-content:space-between;gap:10px;margin-top:9px;font-size:13px"><span>${safe(n)}</span><b>${c} Sätze</b></div>`).join('')}</div>`:
   '<p class="sub" style="margin-top:14px">Noch keine abgeschlossenen Sätze zugeordnet. Erstelle ein Workout mit Übungen, hake Sätze ab und schließe es ab.</p>'}
@@ -1096,77 +1096,17 @@ render=function(){
  },true);
 
 
- // Einfache 3D-Körperfigur mit perspektivisch projizierten Körpersegmenten;
- // funktioniert offline, ohne externe Bibliotheken oder Datenweitergabe.
- let fp3DAngle=0.22;
- function fpDraw3D(){
-  const c=document.getElementById('fp-body-3d');if(!c)return;
-  const ctx=c.getContext('2d');if(!ctx)return;
-  const ratio=Math.min(2,window.devicePixelRatio||1);
-  c.width=Math.round(360*ratio);c.height=Math.round(440*ratio);
-  ctx.setTransform(ratio,0,0,ratio,0,0);ctx.clearRect(0,0,360,440);
-  const data=fpBodyData(),a=fp3DAngle;
-  const parts=[
-   ['','Kopf',0,3.25,0,.27,.32,.26],['','Hals',0,2.91,0,.13,.16,.13],
-   ['Schultern','Schultern',-.42,2.7,0,.26,.2,.23],['Schultern','Schultern',.42,2.7,0,.26,.2,.23],
-   ['Arme','Oberarm',-.6,2.36,0,.16,.43,.16],['Arme','Oberarm',.6,2.36,0,.16,.43,.16],
-   ['Arme','Unterarm',-.76,1.68,.05,.14,.37,.14],['Arme','Unterarm',.76,1.68,.05,.14,.37,.14],
-   ['Brust','Brust',0,2.48,.19,.43,.28,.18],
-   ['Rücken','Rücken',0,2.48,-.20,.44,.42,.16],
-   ['Bauch','Bauch',0,1.94,.1,.34,.32,.21],
-   ['','Becken',0,1.53,0,.4,.24,.23],
-   ['Beine','Oberschenkel',-.23,1.10,0,.23,.55,.22],['Beine','Oberschenkel',.23,1.10,0,.23,.55,.22],
-   ['Beine','Unterschenkel',-.25,.36,.04,.17,.45,.18],['Beine','Unterschenkel',.25,.36,.04,.17,.45,.18],
-   ['','Fuß',-.25,-.10,.17,.18,.13,.3],['','Fuß',.25,-.10,.17,.18,.13,.3]
-  ];
-  function rotate(x,z){return [x*Math.cos(a)+z*Math.sin(a),z*Math.cos(a)-x*Math.sin(a)]}
-  function proj(x,y,z){const [rx,rz]=rotate(x,z);const fac=3.9/(3.9-rz*.22);return {x:180+rx*105*fac,y:386-(y+.12)*99*fac,z:rz,fac}}
-  const shapes=parts.map(([g,label,x,y,z,rx,ry,rz])=>{
-   const p=proj(x,y,z),scale=p.fac*105;
-   const ex=(Math.abs(Math.cos(a))*rx+Math.abs(Math.sin(a))*rz)*scale;
-   const ey=ry*scale;
-   return {g,label,p,ex,ey,depth:p.z};
-  }).sort((a,b)=>a.depth-b.depth);
-  const hit=[];
-  for(const sh of shapes){
-   const active=sh.g&&(data[sh.g].sets>0||data[sh.g].workouts.size>0);
-   const base=active?'#0bbca0':'#bdcfcb';
-   const gradient=ctx.createRadialGradient(sh.p.x-sh.ex*.35,sh.p.y-sh.ey*.4,2,sh.p.x,sh.p.y,Math.max(sh.ex,sh.ey)*1.45);
-   gradient.addColorStop(0,active?'#7effd9':'#f7fffb');
-   gradient.addColorStop(.52,base);
-   gradient.addColorStop(1,active?'#087f70':'#799c95');
-   ctx.beginPath();ctx.ellipse(sh.p.x,sh.p.y,Math.max(4,sh.ex),Math.max(4,sh.ey),0,0,Math.PI*2);
-   ctx.fillStyle=gradient;ctx.fill();ctx.strokeStyle=active?'#008f82':'#90b0aa';ctx.lineWidth=1.2;ctx.stroke();
-   if(sh.g)hit.push(sh);
-  }
-  c._fpHit=hit;
-  ctx.fillStyle='#4b7771';ctx.font='600 12px system-ui';ctx.textAlign='center';
-  ctx.fillText('Trainierte Körperbereiche leuchten türkis',180,424);
- }
- function fp3DChoose(x,y){
-  const c=document.getElementById('fp-body-3d');if(!c)return;
-  const list=c._fpHit||[];
-  for(let i=list.length-1;i>=0;i--){
-   const sh=list[i];
-   const dx=(x-sh.p.x)/Math.max(4,sh.ex),dy=(y-sh.p.y)/Math.max(4,sh.ey);
-   if(dx*dx+dy*dy<=1){fpBodySelected=sh.g;render();return}
-  }
- }
- function fp3DWire(){
-  const c=document.getElementById('fp-body-3d');if(!c)return;
-  fpDraw3D();
-  let start=null;
-  c.onpointerdown=e=>{start={x:e.clientX,y:e.clientY,angle:fp3DAngle};c.setPointerCapture?.(e.pointerId)};
-  c.onpointermove=e=>{if(!start)return;fp3DAngle=start.angle+(e.clientX-start.x)*.014;fpDraw3D()};
-  c.onpointerup=e=>{if(!start)return;const moved=Math.abs(e.clientX-start.x);start=null;if(moved<9){const rect=c.getBoundingClientRect();fp3DChoose((e.clientX-rect.left)/rect.width*360,(e.clientY-rect.top)/rect.height*440)}};
-  c.onpointercancel=()=>{start=null};
- }
- const fp3DOldRender=render;
- render=function(){fp3DOldRender();if(s.tab==='progress'&&!s.view)fp3DWire()};
- document.addEventListener('click',e=>{
-  const b=e.target.closest('button[data-fpbodyturn]');if(!b)return;
-  e.preventDefault();e.stopImmediatePropagation();
-  fp3DAngle+=Number(b.dataset.fpbodyturn)*Math.PI/4;fpDraw3D();
- },true);
+
+ // Die echte 3D-Figur wird in body-model.js gerendert; nur die Datenschnittstelle bleibt hier.
+ window.FPBodyModelData=function(){
+   const data=fpBodyData();
+   return Object.fromEntries(fpBodyGroups.map(g=>[g,{sets:data[g].sets,workouts:data[g].workouts.size}]));
+ };
+ window.FPBodyModelSelect=function(group){
+   if(!fpBodyGroups.includes(group))return;
+   fpBodySelected=group;
+   render();
+ };
+ window.FPBodyModelSelected=function(){return fpBodySelected};
 
 })();
