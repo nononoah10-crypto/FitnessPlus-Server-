@@ -1083,7 +1083,7 @@ render=function(){
  progress=function(){
   const html=fpBodyPreviousProgress();
   if(s.view==='records'||s.view==='strength'||s.view==='friends'||s.view==='levels')return html;
-  return fpBodyCard()+html;
+  return html;
  };
  document.addEventListener('click',e=>{
   const b=e.target.closest('button[data-fpbodytoggle]');
