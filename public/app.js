@@ -828,4 +828,42 @@ document.addEventListener('click',function(e){
   save();render();
 },true);
 
+
+// FitnessPlus 7.7: Online-Freunde direkt in der bestehenden Freundesliste.
+// Keine Änderungen an Spielstand, Login, Training oder Datenbank.
+let fpFriendsOnline={user:null,friends:[],requests:[],selected:null,error:'',loading:false,attempted:false};
+const fpFriendsApi=async(path,data)=>{const r=await fetch('/api/'+path,{method:data?'POST':'GET',credentials:'same-origin',cache:'no-store',headers:data?{'Content-Type':'application/json'}:{},body:data?JSON.stringify(data):undefined});const j=await r.json();if(!r.ok)throw Object.assign(Error(j.error||'Serverfehler'),{status:r.status});return j};
+const fpFriendsLink=code=>location.origin+location.pathname+'#fp-online-friend='+encodeURIComponent(code);
+async function fpFriendsLoad(){if(fpFriendsOnline.loading)return;fpFriendsOnline.loading=true;fpFriendsOnline.attempted=true;try{
+ const [m,f,r]=await Promise.all([fpFriendsApi('me'),fpFriendsApi('friends'),fpFriendsApi('friends/requests')]);
+ fpFriendsOnline.user=m.user;fpFriendsOnline.friends=f.friends||[];fpFriendsOnline.requests=r.received||[];fpFriendsOnline.error='';
+ }catch(e){fpFriendsOnline.error=e.status===401?'Bitte melde dich zuerst bei FitnessPlus an.':e.message;fpFriendsOnline.user=null}
+ finally{fpFriendsOnline.loading=false;if(s.view==='friends'&&s.tab==='progress')render()}}
+function fpFriendsOnlinePanel(){const f=fpFriendsOnline,m=f.user;
+ if(!m)return `<div class="card"><b>👥 Online-Freunde</b><p class="sub">${safe(f.error||'Dein persönlicher QR-Code wird geladen …')}</p><button class="btn" data-fpof-refresh="1">Erneut laden</button></div>`;
+ const code=String(m.friendCode||'');const link=fpFriendsLink(code);
+ const qr='https://api.qrserver.com/v1/create-qr-code/?size=240x240&data='+encodeURIComponent(link);
+ return `<div class="card"><h2 class="section">👥 Mein Freundes-Code</h2><p class="sub">Dein persönlicher Code bleibt bei jeder Anmeldung gleich.</p><div style="font-size:24px;font-weight:800;letter-spacing:1px;overflow-wrap:anywhere;text-align:center;margin:14px 0">${safe(code)}</div><img src="${safe(qr)}" alt="Dein FitnessPlus-Freundes-QR-Code" width="220" height="220" style="display:block;max-width:100%;margin:12px auto;border-radius:12px" loading="lazy"><p class="sub">Zum Scannen oder Teilen. Der Einladungslink wird zur QR-Erzeugung an einen externen Dienst übermittelt.</p><button class="primary" data-fpof-share="1">QR-Einladung teilen</button><button class="primary outline" data-fpof-copy="1">Code kopieren</button></div>
+ <div class="card"><h2 class="section">➕ Freund hinzufügen</h2><p class="sub">Gib den dauerhaften Code deines Freundes ein.</p><input class="input" id="fpofInput" placeholder="FP-XXXXXXXX" autocapitalize="characters" autocomplete="off"><button class="primary" data-fpof-search="1">Freund suchen</button>${f.selected?`<div style="margin-top:14px"><b>${safe(f.selected.name)}</b><p class="sub">${safe(f.selected.code)}</p><button class="primary" data-fpof-request="1" ${f.selected.self||f.selected.friend||f.selected.pending?'disabled':''}>${f.selected.self?'Das bist du':f.selected.friend?'Bereits befreundet':f.selected.pending?'Anfrage gesendet':'Freund hinzufügen'}</button></div>`:''}</div>
+ <div class="card"><div class="row"><b>📩 Freundschaftsanfragen</b><button class="btn" data-fpof-refresh="1">Aktualisieren</button></div>${f.requests.length?f.requests.map(x=>`<div class="item"><div class="grow"><b>${safe(x.name)}</b></div><button class="btn" data-fpof-answer="accept" data-fpof-id="${safe(x.id)}">Annehmen</button><button class="btn danger" data-fpof-answer="decline" data-fpof-id="${safe(x.id)}">Ablehnen</button></div>`).join(''):'<p class="sub">Keine offenen Anfragen.</p>'}</div>
+ <div class="card"><b>✅ Meine Freunde (${f.friends.length})</b>${f.friends.length?f.friends.map(x=>`<div class="item"><div class="grow"><b>${safe(x.name)}</b><div class="sub">Level ${Number(x.level)||1}</div></div><button class="btn danger" data-fpof-remove="${safe(x.id)}">Entfernen</button></div>`).join(''):'<p class="sub">Noch keine bestätigten Freunde.</p>'}</div>`;
+}
+const fpFriendsOriginal=friendsScreen;
+friendsScreen=function(){return hdr('DEINE FREUNDE','Gemeinsam stärker.')+fpFriendsOnlinePanel()};
+// Beim Öffnen über QR-Code erst Profil anzeigen; keine automatische Freundschaft.
+async function fpFriendsSearch(code){const x=await fpFriendsApi('friends/profile?code='+encodeURIComponent(String(code||'').trim().toUpperCase()));fpFriendsOnline.selected=x;s.tab='progress';s.view='friends';render();}
+function fpFriendsReadInvite(){const match=location.hash.match(/^#fp-online-friend=([^&]+)/);if(!match)return;history.replaceState(null,'',location.pathname+location.search);const code=decodeURIComponent(match[1]);s.tab='progress';s.view='friends';render();fpFriendsLoad().then(()=>fpFriendsSearch(code).catch(e=>toast(e.message)))}
+const fpFriendsOldRender=render;render=function(){fpFriendsOldRender();if(s.tab==='progress'&&s.view==='friends'&&!fpFriendsOnline.attempted&&!fpFriendsOnline.loading)fpFriendsLoad()};
+document.addEventListener('click',async e=>{const b=e.target.closest('button');if(!b)return;const d=b.dataset;const active=['fpofRefresh','fpofCopy','fpofShare','fpofSearch','fpofRequest','fpofAnswer','fpofRemove'].some(k=>d[k]!==undefined);if(!active)return;
+ e.preventDefault();e.stopImmediatePropagation();try{
+ if(d.fpofRefresh!==undefined){await fpFriendsLoad();return}
+ if(d.fpofCopy!==undefined){await navigator.clipboard.writeText(fpFriendsOnline.user.friendCode);toast('Freundes-Code kopiert!');return}
+ if(d.fpofShare!==undefined){const link=fpFriendsLink(fpFriendsOnline.user.friendCode);if(navigator.share)await navigator.share({title:'FitnessPlus – Freund hinzufügen',url:link});else{await navigator.clipboard.writeText(link);toast('Einladungslink kopiert!')}return}
+ if(d.fpofSearch!==undefined){await fpFriendsSearch($('#fpofInput')?.value);return}
+ if(d.fpofRequest!==undefined){if(!fpFriendsOnline.selected||fpFriendsOnline.selected.self||fpFriendsOnline.selected.friend||fpFriendsOnline.selected.pending)return;await fpFriendsApi('friends/request',{code:fpFriendsOnline.selected.code});fpFriendsOnline.selected.pending=true;render();toast('Freundschaftsanfrage gesendet!');return}
+ if(d.fpofAnswer!==undefined){await fpFriendsApi('friends/respond',{id:d.fpofId,decision:d.fpofAnswer});toast(d.fpofAnswer==='accept'?'Freundschaft angenommen!':'Anfrage abgelehnt.');await fpFriendsLoad();return}
+ if(d.fpofRemove!==undefined){if(!confirm('Freund wirklich entfernen?'))return;await fpFriendsApi('friends/remove',{userId:d.fpofRemove});await fpFriendsLoad();toast('Freund entfernt.');return}
+ }catch(err){if(err.name!=='AbortError')toast(err.message||'Verbindung fehlgeschlagen')}},true);
+setTimeout(fpFriendsReadInvite,1200);
+
 })();
