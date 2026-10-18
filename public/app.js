@@ -966,4 +966,35 @@ window.addEventListener('click',async e=>{
 const fpGiftPreviousRender=render;
 render=function(){fpGiftPreviousRender();if(s.view==='gifts'&&!fpGiftOnline.loaded&&!fpGiftOnline.loading&&!fpGiftOnline.error)void fpGiftLoad()};
 
+// FitnessPlus: dauerhafte Booster-Anzeige am unteren Bildschirmrand.
+// Wird vom vorhandenen Online-System aus dem echten Boosterstand gespeist.
+// Kein zusätzlicher Abzug: nur erfolgreich verbuchte Übungen zählen.
+function fpBoosterBannerUpdate(){
+ const n=Math.max(0,Math.floor(Number(s.levelBoostUses)||0));
+ let el=document.getElementById('fp-active-booster-banner');
+ if(n===0){
+  if(el)el.remove();
+  return;
+ }
+ if(!el){
+  el=document.createElement('div');
+  el.id='fp-active-booster-banner';
+  el.setAttribute('role','status');
+  el.setAttribute('aria-live','polite');
+  el.style.cssText='position:fixed;left:12px;right:12px;bottom:calc(112px + env(safe-area-inset-bottom, 0px));z-index:25;max-width:540px;margin:0 auto;padding:11px 16px;border-radius:16px;background:linear-gradient(110deg,#164b48,#097c67);color:#fff;box-shadow:0 8px 24px #0004;pointer-events:none;display:flex;align-items:center;gap:12px;font:inherit;';
+  document.body.appendChild(el);
+ }
+ const multiplier=Number(s.levelBoostMultiplier)===3?3:2;
+ const symbol=multiplier===3?'🔥':'⚡';
+ const label=n===1?'1 Übung übrig':n+' Übungen übrig';
+ const html='<span style="font-size:26px" aria-hidden="true">'+symbol+'</span><span style="display:flex;flex-direction:column;gap:2px"><b style="font-size:15px">'+multiplier+'× Level-Booster aktiv</b><span style="font-size:13px">'+label+'</span></span>';
+ if(el.innerHTML!==html)el.innerHTML=html;
+}
+const fpBoosterBannerPreviousRender=render;
+render=function(){
+ fpBoosterBannerPreviousRender();
+ fpBoosterBannerUpdate();
+};
+fpBoosterBannerUpdate();
+
 })();
