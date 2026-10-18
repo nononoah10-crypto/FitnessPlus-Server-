@@ -430,7 +430,11 @@ async function handler(req,res){try{
   db.exec('BEGIN IMMEDIATE');try{
    const change=run('UPDATE game_chests SET opened_at=?,rarity=?,diamonds=? WHERE id=? AND user_id=? AND opened_at IS NULL',Date.now(),rarity,diamonds,row.id,u.id);
    if(change.changes!==1){db.exec('ROLLBACK');return error(res,409,'Bereits eingelöst')}
-   run('UPDATE users SET diamonds=diamonds+? WHERE id=?',diamonds,u.id);db.exec('COMMIT');
+   run('UPDATE users SET diamonds=diamonds+? WHERE id=?',diamonds,u.id);
+    // Eine erfolgreich geoeffnete Zeittruhe zaehlt als genau eine Level-Uebung.
+    // Das UPDATE erfolgt nur nach dem einmaligen CAS-Update der Truhe.
+    if(row.exercise_index===-1)run('UPDATE users SET xp=xp+1 WHERE id=?',u.id);
+    db.exec('COMMIT');
    return json(res,200,{ok:true,rarity,diamonds,user:publicUser(q('SELECT * FROM users WHERE id=?',u.id))});
   }catch(e){db.exec('ROLLBACK');throw e}
  }
