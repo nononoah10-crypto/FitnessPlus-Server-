@@ -1062,20 +1062,22 @@ render=function(){
   const legs=shape('Beine','path','d="M65 139 L85 139 83 224 73 287 52 287 55 222 Z"')+shape('Beine','path','d="M87 139 L107 139 117 222 120 287 99 287 89 224 Z"');
   return `<div style="text-align:center;flex:1;min-width:120px"><div class="sub" style="font-weight:750;margin-bottom:8px">${back?'Hinten':'Vorne'}</div><svg viewBox="0 0 172 302" role="group" aria-label="Körperansicht ${back?'von hinten':'von vorne'}" style="width:100%;max-width:170px;height:auto;overflow:visible">${base}${arms}${shoulders}${torso}${lowerback}${legs}</svg></div>`;
  }
+ let fpBodyExpanded=false;
  function fpBodyCard(){
   const data=fpBodyData(),total=fpBodyGroups.filter(g=>data[g].sets>0||data[g].workouts.size>0).length;
   const selected=(data[fpBodySelected]?.sets||data[fpBodySelected]?.workouts.size)?fpBodySelected:fpBodyGroups.find(g=>data[g].sets>0||data[g].workouts.size>0)||'';
   const detail=selected?data[selected]:null;
   const fmtDate=d=>{if(!/^\d{4}-\d{2}-\d{2}$/.test(d))return d;const [y,m,day]=d.split('-');return day+'.'+m+'.'+y};
+  if(!fpBodyExpanded)return `<section class="card" id="fp-body-card" style="margin:16px 0 20px"><div class="row" style="gap:12px"><div class="grow"><b style="font-size:20px">🧍 Körperaufbau</b><div class="sub" style="margin-top:5px">${total}/6 Körperbereiche trainiert</div></div><button type="button" class="btn" data-fpbodytoggle="1" aria-expanded="false" aria-controls="fp-body-details">Mehr →</button></div></section>`;
   return `<section class="card" id="fp-body-card" style="margin:16px 0 20px">
-  <div class="row"><div><b style="font-size:20px">🧍 Mein Körpertraining</b><p class="sub" style="margin:6px 0 0">Wo du bereits trainiert hast</p></div><span class="sub">${total}/6 Bereiche</span></div>
+  <div class="row"><div class="grow"><b style="font-size:20px">🧍 Körperaufbau</b><p class="sub" style="margin:6px 0 0">${total}/6 Körperbereiche trainiert</p></div><button type="button" class="btn" data-fpbodytoggle="1" aria-expanded="true" aria-controls="fp-body-details">Weniger ↑</button></div><div id="fp-body-details">
   <p class="sub" style="margin:12px 0">Tippe auf einen markierten Körperbereich. <span style="color:#118b77;font-weight:800">● Grün</span> = dokumentierte Sätze, Grau = noch kein zugeordnetes Training.</p>
   <div style="background:linear-gradient(180deg,#eef8f5,#f8fbfa);padding:12px 6px;border-radius:20px;text-align:center"><div id="fp-body-3d" role="group" aria-label="Drehbare 3D-Menschenfigur" style="width:100%;max-width:360px;aspect-ratio:9/11;margin:0 auto;touch-action:none;border-radius:16px"></div><div style="display:flex;justify-content:center;gap:10px;align-items:center"><button type="button" class="btn" data-fpbodyturn="-1">↶</button><span class="sub">Mit Finger drehen</span><button type="button" class="btn" data-fpbodyturn="1">↷</button></div></div>
   <div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:12px">${fpBodyGroups.map(g=>`<button type="button" data-fpbody="${g}" style="border:1px solid ${selected===g?'#089c84':'#d4e3df'};border-radius:18px;padding:8px 10px;font-size:12px;font-weight:750;color:${selected===g?'#fff':'#193b35'};background:${selected===g?'#078f7c':'#f0f8f5'}">${safe(g)} · ${data[g].workouts.size}×</button>`).join('')}</div>
   ${detail?`<div style="margin-top:15px;padding:14px;background:var(--surface2,#f2f8f6);border-radius:14px"><b>${safe(selected)}: ${detail.workouts.size} Trainingseinträge · ${detail.sets} Sätze</b><div class="sub" style="margin-top:5px">${detail.workouts.size} Trainingseinträge · Zuletzt ${fmtDate(detail.last)}</div>${[...detail.exercises].sort((a,b)=>b[1]-a[1]).map(([n,c])=>`<div style="display:flex;justify-content:space-between;gap:10px;margin-top:9px;font-size:13px"><span>${safe(n)}</span><b>${c} Sätze</b></div>`).join('')}</div>`:
   '<p class="sub" style="margin-top:14px">Noch keine abgeschlossenen Sätze zugeordnet. Erstelle ein Workout mit Übungen, hake Sätze ab und schließe es ab.</p>'}
   <p class="sub" style="font-size:11px;margin-top:12px">Die Darstellung basiert auf gewählten Körperbereichen eigener Trainings und dokumentierten Sätzen im gespeicherten Verlauf. Sie misst weder Muskelwachstum noch Trainingsintensität. Zeittrainings ohne einzelne Übungen werden nicht zugeordnet.</p>
-  </section>`;
+  </div></section>`;
  }
  const fpBodyPreviousProgress=progress;
  progress=function(){
@@ -1083,6 +1085,12 @@ render=function(){
   if(s.view==='records'||s.view==='strength'||s.view==='friends'||s.view==='levels')return html;
   return fpBodyCard()+html;
  };
+ document.addEventListener('click',e=>{
+  const b=e.target.closest('button[data-fpbodytoggle]');
+  if(!b||s.tab!=='progress')return;
+  e.preventDefault();e.stopImmediatePropagation();
+  fpBodyExpanded=!fpBodyExpanded;render();
+ },true);
  document.addEventListener('click',e=>{
   const b=e.target.closest('[data-fpbody]');
   if(!b||s.tab!=='progress'||s.view)return;
