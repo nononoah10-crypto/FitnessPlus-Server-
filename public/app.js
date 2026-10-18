@@ -1034,4 +1034,95 @@ render=function(){
 
 
 
+
+// FP_SERVER_EVENTS_BRIDGE_V1
+// Die Admin-App und FitnessPlus verwenden denselben serverseitigen Event-Status.
+// Alle echten Belohnungen werden ausschließlich durch authentifizierte API-Endpunkte vergeben.
+let fpServerEventConfig=null,fpServerEventInfo=null,fpServerEventBusy=false;
+function fpEventIsOn(c){return !!c&&(Number(c.giftDiamonds)>0||c.doubleXp===true||c.season===true||c.wheel===true)}
+function fpEventBadge(){
+  let el=document.getElementById('fpActiveEventBadge');
+  const c=fpServerEventConfig;
+  if(!fpEventIsOn(c)){el?.remove();return}
+  if(!el){el=document.createElement('div');el.id='fpActiveEventBadge';el.setAttribute('role','status');el.setAttribute('aria-live','polite');document.body.appendChild(el)}
+  const items=[];
+  if(c.doubleXp)items.push('⚡ Doppel-XP');
+  if(Number(c.giftDiamonds)>0)items.push('🎁 Geschenk');
+  if(c.season)items.push('🏆 Saison');
+  if(c.wheel)items.push('🎡 Glücksrad');
+  el.style.cssText='position:fixed;bottom:calc(env(safe-area-inset-bottom,0px) + '+(document.getElementById('fpActiveBoosterBadge')?'124':'84')+'px);left:50%;transform:translateX(-50%);max-width:calc(100vw - 32px);width:max-content;z-index:9997;background:#123c33;color:#ffffff;border:1px solid #36b69b;border-radius:999px;padding:8px 14px;text-align:center;font:700 12px system-ui;box-shadow:0 4px 15px #0002;pointer-events:none';
+  el.textContent='🎉 EVENT AKTIV · '+items.join(' · ');
+}
+activeEvent=function(){
+ const c=fpServerEventConfig;
+ if(!fpEventIsOn(c))return null;
+ return {id:'server-'+String(c.updatedAt||'0'),active:true,server:true,title:'FitnessPlus Event',doubleXP:!!c.doubleXp,season:c.season?{active:true}:null,wheel:c.wheel?{active:true}:null,gift:Number(c.giftDiamonds)>0?{active:true,diamonds:Number(c.giftDiamonds)}:null}
+};
+refreshEvents=async function(){
+ if(fpServerEventBusy)return;
+ fpServerEventBusy=true;
+ try{
+  const response=await fetch('/api/events?nocache='+Date.now(),{credentials:'same-origin',cache:'no-store'});
+  if(!response.ok)throw Error('Eventstatus nicht verfügbar');
+  const payload=await response.json();
+  const cfg=payload.events||{};
+  fpServerEventConfig=cfg;
+  liveEvents=activeEvent()||{id:'',active:false};
+  fpServerEventInfo=null;
+  if(fpEventIsOn(cfg)){
+   try{
+    const player=await fetch('/api/game/events',{credentials:'same-origin',cache:'no-store'});
+    if(player.ok)fpServerEventInfo=(await player.json()).events||null;
+   }catch(_){}
+  }
+  fpEventBadge();
+  if(s.view==='events')render();
+ }catch(err){
+  fpServerEventConfig=null;fpServerEventInfo=null;liveEvents={id:'',active:false};
+  fpEventBadge();if(s.view==='events')render();
+ }finally{fpServerEventBusy=false}
+};
+eventView=function(){
+ const c=fpServerEventConfig,info=fpServerEventInfo;
+ let h=hdr('FITNESSPLUS EVENTS','Events & Belohnungen.')+'<button class="btn" data-eventback="1">← Zurück</button>';
+ if(!fpEventIsOn(c))return h+'<div class="card"><b>Gerade kein Event aktiv</b><p class="sub">Aktive Events werden automatisch aus der Admin-Verwaltung geladen.</p><button class="btn" data-eventrefresh="1">Aktualisieren</button></div>';
+ h+='<div class="card"><b>🎉 Event aktiv</b><p class="sub">Dieses Event wurde in der Admin-App aktiviert. Die aktiven Vorteile gelten auch, wenn du diese Seite verlässt.</p></div>';
+ if(c.doubleXp)h+='<div class="card"><b>⚡ Doppel-XP aktiv</b><p class="sub">Für abgeschlossene Online-Übungen gibt der Server doppelte XP, solange kein gekaufter Booster vorrangig aktiv ist.</p></div>';
+ if(Number(c.giftDiamonds)>0)h+='<div class="card"><b>🎁 Event-Geschenk</b><p class="sub">'+Math.floor(Number(c.giftDiamonds))+' 💎 einmalig abholen</p><button class="primary" data-fp-serverevent="gift" '+(info?.giftClaimed?'disabled':'')+'>'+(info?.giftClaimed?'✓ Bereits abgeholt':'Geschenk abholen')+'</button></div>';
+ if(c.season){
+  h+='<div class="card"><b>🏆 Saison-Pass</b><p class="sub">'+(info?Number(info.progress||0)+' abgeschlossene Online-Übungen':'Melde dich an, um deinen Fortschritt zu sehen.')+'</p>';
+  if(info?.tiers)h+=info.tiers.map(t=>'<div class="item"><div class="grow"><b>'+Number(t.at)+' Übungen</b><div class="sub">'+Number(t.diamonds)+' 💎</div></div><button class="btn" data-fp-serverevent="season" data-event-tier="'+Number(t.at)+'" '+(t.claimed||info.progress<t.at?'disabled':'')+'>'+(t.claimed?'✓ Abgeholt':info.progress<t.at?'Gesperrt':'Abholen')+'</button></div>').join('');
+  h+='</div>';
+ }
+ if(c.wheel)h+='<div class="card"><b>🎡 Glücksrad</b><p class="sub">'+(info?'Heute noch '+Number(info.wheelSpinsRemaining||0)+' von '+Number(info.wheelMaxSpins||0)+' Drehungen übrig.':'Melde dich an, um zu drehen.')+'</p><button class="primary" data-fp-serverevent="wheel" '+(info&&info.wheelSpinsRemaining===0?'disabled':'')+'>Jetzt drehen</button></div>';
+ if(!info)h+='<p class="sub">Für Belohnungen musst du mit deinem Online-Konto angemeldet sein.</p>';
+ return h;
+};
+document.addEventListener('click',async e=>{
+ const button=e.target.closest('button[data-fp-serverevent]');
+ if(!button)return;
+ e.preventDefault();e.stopImmediatePropagation();
+ if(button.disabled||button.dataset.busy)return;
+ const mode=button.dataset.fpServerevent;
+ if(!fpEventIsOn(fpServerEventConfig))return;
+ button.dataset.busy='1';button.disabled=true;
+ const route=mode==='gift'?'/api/game/event/gift':mode==='wheel'?'/api/game/wheel':mode==='season'?'/api/game/season/claim':'';
+ if(!route)return;
+ try{
+  const response=await fetch(route,{method:'POST',credentials:'same-origin',headers:{'content-type':'application/json'},body:JSON.stringify(mode==='season'?{tier:Number(button.dataset.eventTier)}:{})});
+  const payload=await response.json();
+  if(!response.ok)throw Error(payload.error||'Event-Aktion fehlgeschlagen');
+  if(payload.user&&Number.isFinite(Number(payload.user.diamonds)))s.diamonds=Number(payload.user.diamonds);
+  if(payload.user&&Number.isFinite(Number(payload.user.xp)))s.levelExercises=Number(payload.user.xp);
+  save();
+  toast(mode==='wheel'?'🎡 '+Number(payload.diamonds||0)+' Diamanten gewonnen!':mode==='gift'?'🎁 '+Number(payload.diamonds||0)+' Diamanten abgeholt!':'🏆 Saisonbelohnung abgeholt!');
+  await refreshEvents();render();
+ }catch(err){toast(err.message||'Event-Aktion fehlgeschlagen');button.disabled=false}
+ finally{delete button.dataset.busy}
+},true);
+const fpEventPreviousRender=render;
+render=function(){fpEventPreviousRender();fpEventBadge()};
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)void refreshEvents()});
+window.addEventListener('pageshow',()=>void refreshEvents());
+
 })();
