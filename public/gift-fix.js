@@ -8,7 +8,7 @@
  async function request(method,url,payload){const r=await fetch(url,{method,credentials:'same-origin',cache:'no-store',headers:payload?{'Content-Type':'application/json'}:{},body:payload?JSON.stringify(payload):undefined});let data;try{data=await r.json()}catch{throw Error('Antwort des Servers konnte nicht gelesen werden')}if(!r.ok)throw Error(data.error||'Serverfehler');return data}
  function giftPage(){return /Geschenke werden geladen|Direkt an Freunde senden|Geschenk senden/.test(page.textContent||'')&&(/GESCHENKE|Geschenke/i.test(page.textContent||''));}
 
- function drawBadge(){let el=document.getElementById('fpActiveBoosterBadge');const uses=Number(booster?.uses||0);if(!uses){el?.remove();return}if(!el){el=document.createElement('div');el.id='fpActiveBoosterBadge';el.style.cssText='position:fixed;bottom:calc(env(safe-area-inset-bottom,0px) + 12px);left:50%;transform:translateX(-50%);z-index:9998;background:#17283d;color:white;border:1px solid #75a8ff;border-radius:999px;padding:8px 13px;font:600 12px system-ui;pointer-events:none';document.body.append(el)}el.textContent='⚡ '+(Number(booster.multiplier)>=3?'Mega-XP':'Doppel-XP')+' aktiv · '+uses+' Übungen übrig'}
+ function drawBadge(){let el=document.getElementById('fpActiveBoosterBadge');const uses=Number(booster?.uses||0);if(!uses){el?.remove();return}if(!el){el=document.createElement('div');el.id='fpActiveBoosterBadge';el.style.cssText='position:fixed;bottom:calc(env(safe-area-inset-bottom,0px) + 84px);left:50%;transform:translateX(-50%);z-index:9998;background:#17283d;color:white;border:1px solid #75a8ff;border-radius:999px;padding:8px 13px;font:600 12px system-ui;pointer-events:none';document.body.append(el)}el.textContent='⚡ '+(Number(booster.multiplier)>=3?'Mega-XP':'Doppel-XP')+' aktiv · '+uses+' Übungen übrig'}
  function template(message=''){
   return `<div class="card" id="fpGiftForm"><b>🎁 Geschenk an Freunde senden</b><p class="sub">${message?esc(message):'Dein Guthaben: 💎 '+balance+' · Keine Geschenk-Codes'}</p>
   <label class="field" for="fpGiftFriend">Freund auswählen</label><select class="input" id="fpGiftFriend"><option value="">Bitte auswählen</option>${friends.map(f=>`<option value="${esc(f.id)}">${esc(f.name)}</option>`).join('')}</select>
@@ -33,6 +33,6 @@
   try{await request('POST','/api/gifts/send',{friendId,kind:'diamonds',amount});status.textContent='🎉 Geschenk erfolgreich an '+friend.name+' gesendet!';const g=await request('GET','/api/game');balance=g.user?.diamonds??balance;const p=document.querySelector('#fpGiftForm>.sub');if(p)p.textContent='Dein Guthaben: 💎 '+balance+' · Keine Geschenk-Codes';}
   catch(err){status.textContent='Fehler: '+err.message}finally{b.disabled=false}
  },true);
- setInterval(()=>{if(!loading&&Date.now()-lastLoad>12000) {if(giftPage())load();else request('GET','/api/game').then(g=>{booster=g.booster||{uses:0};drawBadge()}).catch(()=>{})}},12000);
+ setInterval(()=>{if(!loading&&Date.now()-lastLoad>5000) {if(giftPage())load();else request('GET','/api/game').then(g=>{booster=g.booster||{uses:0};drawBadge()}).catch(()=>{})}},5000);
  if(giftPage())load();
 })();
