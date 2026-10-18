@@ -155,7 +155,7 @@ function handleGoalReached(){
  let box=null;
  if(!window.FP76Online&&!s.rewardClaims[claim]){
   s.rewardClaims[claim]=true;
-  box={id:uid(),name:(w?.name||'Training')+' Zeittruhe'};
+  box={id:uid(),name:(w?.name||'Training')+' Zeittruhe',timeChest:true};
   s.rewardBoxes.push(box);
  }
  save();render();playGoalAlarm();
@@ -172,6 +172,18 @@ function rewardView(){return hdr('DEINE BELOHNUNGEN','Diamantboxen.')+`<button c
 let rewardModal=null;
 let rewardAnimationTimer=null;
 let rewardDismissTimer=null;
+function fpFinishAfterTimeChest(){
+ if(s.active){
+  const current=s.active,w=find(current.id)||current;
+  const started=Number(current.started)||Date.now();
+  const elapsed=Math.max(0,(Number(current.stoppedAt)||Date.now())-started);
+  const min=Math.max(1,Math.round(elapsed/60000));
+  const kcal=Math.round((Number(w?.kcal)||0)*min/Math.max(1,Number(w?.min)||30));
+  s.history.push({id:uid(),workoutId:current.id,name:w?.name||'Training',day:day(),min,kcal,exercises:(w?.exercises||[]).map((x,i)=>({...x,completedSets:Array.from({length:Math.min(30,Number(x.sets)||0)},(_,j)=>s.trainingSets[i+'-'+j]||{reps:x.reps,weight:x.weight,done:false}).filter(v=>v.done)}))});
+ }
+ s.active=null;s.tab='home';s.view='';window.FPTimeChestCompleted=false;
+ save();render();
+}
 function rewardModalRender(){
  const overlay=$('#fxOverlay'); if(!overlay)return;
  if(!rewardModal){overlay.classList.remove('show');overlay.innerHTML='';return}
@@ -193,6 +205,8 @@ function openRewardBox(id){
  if(rewardModal?.mode!=='earned'||String(rewardModal.id)!==String(id))return;
  const idx=s.rewardBoxes.findIndex(b=>String(b.id)===String(id));if(idx<0)return;
  const box=s.rewardBoxes.splice(idx,1)[0];
+ const isTimeChest=!!box.timeChest||/Zeittruhe/i.test(String(box.name||''));
+ if(isTimeChest){s.levelExercises=Math.max(0,Number(s.levelExercises)||0)+1;window.FPTimeChestCompleted=true;}
  const r=Math.random();const rarity=r<.70?'Episch':r<.94?'Mythisch':'Legendär';
  const amount=rarity==='Episch'?10+Math.floor(Math.random()*11):rarity==='Mythisch'?25+Math.floor(Math.random()*16):60+Math.floor(Math.random()*41);
  const emoji=rarity==='Episch'?'💠':rarity==='Mythisch'?'🔮':'👑';
@@ -201,7 +215,7 @@ function openRewardBox(id){
 }
 document.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;
  if(b.dataset.chestopen!==undefined){e.preventDefault();e.stopImmediatePropagation();openRewardBox(b.dataset.chestopen)}
- if(b.dataset.chestclose!==undefined){e.preventDefault();e.stopImmediatePropagation();rewardModal=null;rewardModalRender()}
+ if(b.dataset.chestclose!==undefined){e.preventDefault();e.stopImmediatePropagation();rewardModal=null;rewardModalRender();if(window.FPTimeChestCompleted)fpFinishAfterTimeChest()}
 },true);
 const normalRender41=render;render=function(){normalRender41();if(s.view==='rewards')$('#page').innerHTML=rewardView()};
 // capture before older dispatcher so it does not toggle twice
@@ -773,7 +787,7 @@ window.FP76Start=durationMinutes=>{
  if(!window.FP76Online)return;
  runId='';starting=req('/api/game/start',{durationMinutes}).then(x=>{runId=x.runId}).catch(e=>toast('Online-Training nicht gestartet: '+e.message));
 };
-let timeChestPending=false;
+let timeChestPending=false;const fpOnlineTimeChestIds=new Set();
 window.FP76TimeChest=async()=>{
  if(!window.FP76Online||timeChestPending)return;
  timeChestPending=true;
@@ -786,7 +800,7 @@ window.FP76TimeChest=async()=>{
    catch(e){if(!/Trainingszeit ist noch nicht erreicht/.test(e.message)||attempt===4)throw e;await new Promise(resolve=>setTimeout(resolve,1200))}
   }
   await status();
-  showEarnedBox({id:x.chestId,name:'Zeittruhe'});
+  fpOnlineTimeChestIds.add(String(x.chestId));showEarnedBox({id:x.chestId,name:'Zeittruhe'});
  }catch(e){toast('Zeittruhe: '+e.message)}finally{timeChestPending=false}
 };
 window.FP76Exercise=async claim=>{
@@ -801,7 +815,8 @@ window.FP76Exercise=async claim=>{
  }catch(e){toast(e.message)}finally{pending.delete(claim)}
 };
 const openCloudChest=async id=>{
- try{const x=await req('/api/game/chest/open',{chestId:id});s.diamonds=x.user.diamonds;
+ try{const x=await req('/api/game/chest/open',{chestId:id});s.diamonds=x.user.diamonds;s.levelExercises=x.user.xp;
+  if(fpOnlineTimeChestIds.has(String(id))){fpOnlineTimeChestIds.delete(String(id));window.FPTimeChestCompleted=true;}
   s.rewardBoxes=s.rewardBoxes.filter(b=>String(b.id)!==String(id));
   s.rewardHistory.push({name:'Online-Truhe',date:day(),amount:x.diamonds,rarity:x.rarity});
   rewardModal={mode:'opened',name:'Online-Truhe',amount:x.diamonds,rarity:x.rarity,emoji:x.rarity==='Episch'?'💠':x.rarity==='Mythisch'?'🔮':'👑'};
