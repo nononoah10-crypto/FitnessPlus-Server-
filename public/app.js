@@ -735,7 +735,7 @@ let revision=0, loggedIn=false, busy=false, queued=false, conflict=false, lastSe
 const setStatus=t=>{};
 const api=async(method,url,data)=>{let r=await fetch(url,{method,credentials:'same-origin',headers:data?{'Content-Type':'application/json'}:{},body:data?JSON.stringify(data):undefined});let x=await r.json();if(!r.ok)throw Object.assign(Error(x.error||'Serverfehler'),{status:r.status});return x};
 const clean=()=>{let x={...s};for(let k of ['active','view','edit','draftExercises','tab','calMonth','selectedDay','weekOffset','libraryFilter','restUntil'])delete x[k];return x};
-const merge=(remote,user)=>{let ui={tab:s.tab,theme:s.theme,active:null,view:'',edit:null,draftExercises:[]};s={...s,...remote,...ui,diamonds:user.diamonds,levelExercises:user.xp};try{localStorage.setItem(KEY,JSON.stringify(s))}catch{}render()};
+const merge=(remote,user)=>{const currentTraining=s.active;const currentSets=s.trainingSets;let ui={tab:s.tab,theme:s.theme,active:currentTraining,view:s.view,edit:s.edit,draftExercises:s.draftExercises||[]};s={...s,...remote,...ui,diamonds:user.diamonds,levelExercises:user.xp};if(currentTraining)s.trainingSets=currentSets;try{localStorage.setItem(KEY,JSON.stringify({...s,active:null,view:'',edit:null,draftExercises:[]}))}catch{}render()};
 async function init(){if(busy)return;busy=true;try{
  const x=await api('GET','/api/state');loggedIn=true;revision=x.revision;
  if(x.state){let local=clean();let hasLocal=(local.history||[]).length||(local.workouts||[]).length||(local.diamonds||0)||(local.levelExercises||0);
