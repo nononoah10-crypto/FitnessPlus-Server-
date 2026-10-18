@@ -806,4 +806,23 @@ window.addEventListener('click',async e=>{
 },true);
 })();
 
+
+// FitnessPlus: Training ohne Timer als erledigt markieren (ohne Belohnungen).
+const workoutRowBeforeQuickCheck = workoutRow;
+workoutRow = function(w){
+  const original = workoutRowBeforeQuickCheck(w);
+  const todayDone = s.history.some(h => String(h.workoutId) === String(w.id) && h.day === day() && h.quickCheck === true);
+  const button = `<button type="button" class="btn" data-quickcheck="${safe(String(w.id))}" aria-label="Training ohne Timer abhaken" title="Ohne Timer, XP oder Diamanten">${todayDone?'☑':'☐'}</button>`;
+  return original.slice(0,-6)+button+'</div>';
+};
+document.addEventListener('click',function(e){
+  const b=e.target.closest('button[data-quickcheck]');if(!b)return;
+  e.preventDefault();e.stopImmediatePropagation();
+  const w=find(b.dataset.quickcheck);if(!w)return;
+  const index=s.history.findIndex(h=>h.quickCheck===true&&String(h.workoutId)===String(w.id)&&h.day===day());
+  if(index>=0){s.history.splice(index,1);toast('Haken entfernt.');}
+  else{s.history.push({id:uid(),workoutId:w.id,name:w.name,day:day(),min:0,kcal:0,exercises:[],quickCheck:true});toast('Training im Kalender abgehakt – ohne Timer oder Belohnung.');}
+  save();render();
+},true);
+
 })();
