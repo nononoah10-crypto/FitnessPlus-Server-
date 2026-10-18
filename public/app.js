@@ -1016,4 +1016,81 @@ render=function(){
  if(s.view==='store'&&!fpShopPricesLoaded&&!fpShopPricesBusy)void fpRefreshShopPrices();
 };
 
+
+ // FitnessPlus: interaktive Koerperkarte im Verlauf
+ const fpBodyGroups=['Brust','Rücken','Schultern','Arme','Bauch','Beine'];
+ let fpBodySelected='';
+ function fpBodyCategory(name){
+  const n=String(name||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim();
+  const named=LIB.find(x=>String(x[0]).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase()===n);
+  const original=named?.[1]||guideData[name]?.[0]||'';
+  const direct={'Brust':'Brust','Rücken':'Rücken','Schultern':'Schultern','Arme':'Arme','Beine':'Beine','Core':'Bauch','Bauch':'Bauch'};
+  if(direct[original])return direct[original];
+  if(/kniebeug|squat|ausfallschritt|lunge|beinpresse|beinstreck|beinbeug|waden|hip thrust|glute|beine|deadlift|kreuzheb/.test(n))return 'Beine';
+  if(/liegestutz|push.?up|bankdruck|chest|brust|butterfly|flys/.test(n))return 'Brust';
+  if(/klimmzug|pull.?up|rudern|latzug|rucken|hyperextension/.test(n))return 'Rücken';
+  if(/schulter|shoulder|seitheben|frontheben|military press/.test(n))return 'Schultern';
+  if(/bizeps|trizeps|curl|armbeug|armstreck|dips/.test(n))return 'Arme';
+  if(/plank|crunch|sit.?up|bauch|core|leg raise|beinheb/.test(n))return 'Bauch';
+  return '';
+ }
+ function fpBodyData(){
+  const by=Object.fromEntries(fpBodyGroups.map(g=>[g,{sets:0,workouts:new Set(),last:'',exercises:new Map()}]));
+  for(const h of s.history){
+   const date=String(h.day||'');
+   for(const e of (Array.isArray(h.exercises)?h.exercises:[])){
+    const g=fpBodyCategory(e.name);if(!g)continue;
+    const sets=(Array.isArray(e.completedSets)?e.completedSets:[]).filter(x=>x&&x.done===true).length;
+    if(!sets)continue;
+    const item=by[g];item.sets+=sets;item.workouts.add(String(h.id||date));
+    if(date>item.last)item.last=date;
+    const key=String(e.name||'').trim();item.exercises.set(key,(item.exercises.get(key)||0)+sets);
+   }
+  }
+  return by;
+ }
+ function fpBodyFigure(back,data){
+  const fill=g=>data[g].sets>0?'#12ad93':'#dce8e5';
+  const shape=(g,tag,attrs)=>`<${tag} ${attrs} fill="${fill(g)}" stroke="#87aaa4" stroke-width="1.7" class="fp-muscle-zone" data-fpbody="${g}" role="button" tabindex="0" aria-label="${g}: ${data[g].sets} abgeschlossene Sätze"><title>${g}: ${data[g].sets} Sätze</title></${tag}>`;
+  const base='<circle cx="86" cy="23" r="18" fill="#dce8e5" stroke="#87aaa4" stroke-width="1.7"/><rect x="78" y="40" width="16" height="13" rx="4" fill="#dce8e5"/>';
+  const arms=shape('Arme','path','d="M49 62 Q36 73 31 95 L20 152 Q19 165 30 167 L48 109 58 82 Z"')+shape('Arme','path','d="M123 62 Q136 73 141 95 L152 152 Q153 165 142 167 L124 109 114 82 Z"');
+  const shoulders=shape('Schultern','path','d="M59 52 Q45 53 43 68 L48 87 68 70 74 53 Z"')+shape('Schultern','path','d="M113 52 Q127 53 129 68 L124 87 104 70 98 53 Z"');
+  const torso=back?shape('Rücken','path','d="M73 53 L99 53 116 80 108 119 64 119 56 80 Z"'):shape('Brust','path','d="M73 53 L86 58 99 53 115 76 105 94 86 89 67 94 57 76 Z"')+shape('Bauch','path','d="M68 96 L86 91 104 96 106 135 66 135 Z"');
+  const lowerback=back?shape('Rücken','path','d="M64 120 L108 120 105 137 67 137 Z"'):'';
+  const legs=shape('Beine','path','d="M65 139 L85 139 83 224 73 287 52 287 55 222 Z"')+shape('Beine','path','d="M87 139 L107 139 117 222 120 287 99 287 89 224 Z"');
+  return `<div style="text-align:center;flex:1;min-width:120px"><div class="sub" style="font-weight:750;margin-bottom:8px">${back?'Hinten':'Vorne'}</div><svg viewBox="0 0 172 302" role="group" aria-label="Körperansicht ${back?'von hinten':'von vorne'}" style="width:100%;max-width:170px;height:auto;overflow:visible">${base}${arms}${shoulders}${torso}${lowerback}${legs}</svg></div>`;
+ }
+ function fpBodyCard(){
+  const data=fpBodyData(),total=fpBodyGroups.filter(g=>data[g].sets>0).length;
+  const selected=data[fpBodySelected]?.sets?fpBodySelected:fpBodyGroups.find(g=>data[g].sets>0)||'';
+  const detail=selected?data[selected]:null;
+  const fmtDate=d=>{if(!/^\d{4}-\d{2}-\d{2}$/.test(d))return d;const [y,m,day]=d.split('-');return day+'.'+m+'.'+y};
+  return `<section class="card" id="fp-body-card" style="margin:16px 0 20px">
+  <div class="row"><div><b style="font-size:20px">🧍 Mein Körpertraining</b><p class="sub" style="margin:6px 0 0">Wo du bereits trainiert hast</p></div><span class="sub">${total}/6 Bereiche</span></div>
+  <p class="sub" style="margin:12px 0">Tippe auf einen markierten Körperbereich. <span style="color:#118b77;font-weight:800">● Grün</span> = dokumentierte Sätze, Grau = noch kein zuordenbares Training.</p>
+  <div style="display:flex;justify-content:center;gap:10px;align-items:start;background:linear-gradient(180deg,#eef8f5,#f8fbfa);padding:12px 6px;border-radius:20px">${fpBodyFigure(false,data)}${fpBodyFigure(true,data)}</div>
+  <div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:12px">${fpBodyGroups.map(g=>`<button type="button" data-fpbody="${g}" style="border:1px solid ${selected===g?'#089c84':'#d4e3df'};border-radius:18px;padding:8px 10px;font-size:12px;font-weight:750;color:${selected===g?'#fff':'#193b35'};background:${selected===g?'#078f7c':'#f0f8f5'}">${safe(g)} · ${data[g].sets}</button>`).join('')}</div>
+  ${detail?`<div style="margin-top:15px;padding:14px;background:var(--surface2,#f2f8f6);border-radius:14px"><b>${safe(selected)}: ${detail.sets} abgeschlossene Sätze</b><div class="sub" style="margin-top:5px">${detail.workouts.size} Trainingseinträge · Zuletzt ${fmtDate(detail.last)}</div>${[...detail.exercises].sort((a,b)=>b[1]-a[1]).map(([n,c])=>`<div style="display:flex;justify-content:space-between;gap:10px;margin-top:9px;font-size:13px"><span>${safe(n)}</span><b>${c} Sätze</b></div>`).join('')}</div>`:
+  '<p class="sub" style="margin-top:14px">Noch keine abgeschlossenen Sätze zugeordnet. Erstelle ein Workout mit Übungen, hake Sätze ab und schließe es ab.</p>'}
+  <p class="sub" style="font-size:11px;margin-top:12px">Die Darstellung basiert auf Übungsnamen und abgeschlossenen Sätzen im gespeicherten Verlauf. Sie misst weder Muskelwachstum noch Trainingsintensität. Zeittrainings ohne einzelne Übungen werden nicht zugeordnet.</p>
+  </section>`;
+ }
+ const fpBodyPreviousProgress=progress;
+ progress=function(){
+  const html=fpBodyPreviousProgress();
+  if(s.view==='records'||s.view==='strength'||s.view==='friends'||s.view==='levels')return html;
+  return fpBodyCard()+html;
+ };
+ document.addEventListener('click',e=>{
+  const b=e.target.closest('[data-fpbody]');
+  if(!b||s.tab!=='progress'||s.view)return;
+  e.preventDefault();e.stopImmediatePropagation();
+  fpBodySelected=b.dataset.fpbody;render();
+ },true);
+ document.addEventListener('keydown',e=>{
+  if((e.key==='Enter'||e.key===' ')&&e.target.matches?.('.fp-muscle-zone')){
+   e.preventDefault();fpBodySelected=e.target.dataset.fpbody;render();
+  }
+ },true);
+
 })();
