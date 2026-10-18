@@ -812,7 +812,7 @@ const workoutRowBeforeQuickCheck = workoutRow;
 workoutRow = function(w){
   const original = workoutRowBeforeQuickCheck(w);
   const todayDone = s.history.some(h => String(h.workoutId) === String(w.id) && h.day === day() && h.quickCheck === true);
-  const button = `<button type="button" class="btn" data-quickcheck="${safe(String(w.id))}" aria-label="Training ohne Timer abhaken" title="Ohne Timer, XP oder Diamanten">${todayDone?'☑':'☐'}</button>`;
+  const button = `<button type="button" class="btn" data-quickcheck="${safe(String(w.id))}" aria-label="${todayDone?'Training als erledigt markiert – erneut tippen zum Rückgängig machen':'Training ohne Timer als erledigt markieren'}" title="Ohne Timer und ohne Belohnungen" style="display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:42px;padding:10px 14px;border:2px solid ${todayDone?'#16864a':'#27a85f'};border-radius:12px;background:${todayDone?'#147a43':'#e6f8ec'};color:${todayDone?'#ffffff':'#116b3b'};font-weight:800;font-size:14px;white-space:nowrap;cursor:pointer">${todayDone?'✓ Erledigt':'✓ Abhaken'}</button>`;
   return original.slice(0,-6)+button+'</div>';
 };
 document.addEventListener('click',function(e){
