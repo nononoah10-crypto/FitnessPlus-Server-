@@ -91,11 +91,14 @@ function colors(){
   item.mesh.material=selected===item.group?selectMat:used?activeMat:item.base;
  }
 }
+let loopStarted=false,eventsStarted=false;
 function attach(){
  const host=document.getElementById('fp-body-3d');
  if(!host)return;
  try{init()}catch(e){host.textContent='3D-Grafik wird auf diesem Gerät nicht unterstützt.';return}
  if(host!==container){container=host;container.appendChild(renderer.domElement);selected=window.FPBodyModelSelected?.()||'';colors()}
+ if(!eventsStarted){events();eventsStarted=true}
+ if(!loopStarted){loopStarted=true;animate()}
 }
 function pick(x,y){
  const rect=renderer.domElement.getBoundingClientRect();
@@ -126,4 +129,4 @@ document.addEventListener('click',e=>{const b=e.target.closest('button[data-fpbo
 let scheduled=false;
 const observer=new MutationObserver(()=>{if(scheduled)return;scheduled=true;requestAnimationFrame(()=>{scheduled=false;attach()})});
 observer.observe(shell,{childList:true});
-attach();if(renderer){events();animate()}
+attach();
