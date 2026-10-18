@@ -831,7 +831,7 @@ window.addEventListener('click',async e=>{
  if(b.dataset.boostbuy!==undefined){e.preventDefault();e.stopPropagation();e.stopImmediatePropagation();
   const item=levelBoosters.find(i=>i.id===b.dataset.boostbuy);if(!item)return;
   if(!confirm(item.name+' für '+item.price+' Diamanten online kaufen?'))return;
-  try{const x=await req('/api/game/shop/buy',{item:item.id});s.diamonds=x.user.diamonds;s.levelBoostUses=x.booster.uses;s.levelBoostMultiplier=x.booster.multiplier;save();render();toast(item.name+' online aktiviert!')}
+  try{const x=await req('/api/game/shop/buy',{item:item.id,expectedPrice:item.price});s.diamonds=x.user.diamonds;s.levelBoostUses=x.booster.uses;s.levelBoostMultiplier=x.booster.multiplier;save();render();toast(item.name+' online aktiviert!')}
   catch(err){toast(err.message)}return;
  }
  if(b.dataset.dailyclaim!==undefined){e.preventDefault();e.stopPropagation();e.stopImmediatePropagation();
@@ -996,5 +996,55 @@ render=function(){
  fpBoosterBannerUpdate();
 };
 fpBoosterBannerUpdate();
+
+// FitnessPlus: Shoppreise aus Admin-Verwaltung aktualisieren.
+let fpShopPricesLoaded=false,fpShopPricesBusy=false;
+async function fpRefreshShopPrices(){
+ if(fpShopPricesBusy)return;
+ fpShopPricesBusy=true;
+ try{
+  const response=await fetch('/api/shop',{credentials:'same-origin',cache:'no-store'});
+  const data=await response.json();
+  if(!response.ok)throw Error(data.error||'Shop-Preise konnten nicht geladen werden');
+  if(!Array.isArray(data.items))throw Error('Shop-Antwort ungueltig');
+  for(const product of levelBoosters){
+   const updated=data.items.find(x=>x.id===product.id);
+   product.active=!!updated;
+   if(updated&&Number.isSafeInteger(Number(updated.price))&&Number(updated.price)>0){
+    product.price=Number(updated.price);
+    product.name=String(updated.name||product.name);
+   }
+  }
+  fpShopPricesLoaded=true;
+  if(s.view==='store')render();
+ }catch(err){
+  fpShopPricesLoaded=false;
+  toast('Shop konnte nicht aktualisiert werden: '+(err.message||'Verbindung'));
+ }finally{fpShopPricesBusy=false}
+}
+const fpShopOldScreen=storeScreen;
+storeScreen=function(){
+ let html=fpShopOldScreen();
+ html=html.replace('<div class="shopSectionHead">','<button type="button" class="primary outline" data-fp-shop-refresh="1" style="margin:14px 0">🔄 Shop aktualisieren</button><div class="shopSectionHead">');
+ if(!fpShopPricesLoaded)html=html.replace(/data-boostbuy="([^"]+)"/g,'data-boostbuy="$1" disabled');
+ for(const item of levelBoosters){
+  if(item.active===false){
+   const expression='data-boostbuy="'+item.id+'"';
+   html=html.replace(expression,expression+' disabled');
+  }
+ }
+ return html;
+};
+window.addEventListener('click',e=>{
+ const btn=e.target.closest('button[data-fp-shop-refresh]');
+ if(!btn)return;
+ e.preventDefault();e.stopImmediatePropagation();
+ void fpRefreshShopPrices();
+},true);
+const fpShopOldRender=render;
+render=function(){
+ fpShopOldRender();
+ if(s.view==='store'&&!fpShopPricesLoaded&&!fpShopPricesBusy)void fpRefreshShopPrices();
+};
 
 })();
