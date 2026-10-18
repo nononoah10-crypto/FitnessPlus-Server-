@@ -7,7 +7,7 @@ s.profile=s.profile&&typeof s.profile==='object'?{nickname:String(s.profile.nick
 function save(){try{localStorage.setItem(KEY,JSON.stringify({...s,active:null,view:'',edit:null,draftExercises:[]}));window.FitnessPlusCloudSaved?.()}catch(e){toast('Speichern in diesem Browser nicht möglich.')}}function toast(v){let t=$('#toast');t.textContent=v;t.style.display='block';clearTimeout(toast.timeout);toast.timeout=setTimeout(()=>t.style.display='none',2600)}function render(){document.documentElement.dataset.theme=s.theme;document.querySelectorAll('.tab').forEach(x=>x.classList.toggle('active',x.dataset.tab===s.tab));$('#page').innerHTML=s.tab==='home'?home():s.tab==='train'?train():s.tab==='calendar'?calendar():s.tab==='progress'?progress():settings();timerTick()}
 function hdr(sub,title){return `<div class="eyebrow">${sub}</div><h1 class="title">${title}</h1>`}function all(){return [...presets,...s.workouts]}function find(id){return all().find(x=>String(x.id)===String(id))}function totals(k=day()){return s.history.filter(x=>x.day===k).reduce((a,x)=>({min:a.min+(+x.min||0),kcal:a.kcal+(+x.kcal||0)}),{min:0,kcal:0})}function ring(value,max,r,color){let c=2*Math.PI*r;return `<circle cx="100" cy="100" r="${r}" fill="none" stroke="#f0f0f4" stroke-width="15"/><circle cx="100" cy="100" r="${r}" fill="none" stroke="${color}" stroke-width="15" stroke-linecap="round" stroke-dasharray="${c}" stroke-dashoffset="${c*(1-Math.min(value/Math.max(1,max),1))}"/>`}function workoutRow(x){let n=x.exercises?.length||0;return `<div class="item"><div class="symbol">${x.id.startsWith('p')?'✦':'▣'}</div><div class="grow"><div class="itemname">${safe(x.name)}</div><div class="sub">${safe(x.type||'Workout')} · ${x.min} Min ${n?'· '+n+' Übungen':''}</div></div><button class="btn" data-start="${safe(x.id)}">Start</button>${!x.id.startsWith('p')?`<button class="btn" data-edit="${safe(x.id)}">✎</button>`:''}</div>`}
 function home(){let t=totals(),dt=new Date().toLocaleDateString('de-DE',{weekday:'long',day:'numeric',month:'long'});return hdr(dt,'Dein Tag. Dein Tempo.')+`<div class="card"><div class="row"><b>Deine Aktivität</b><span class="sub">Heute</span></div><div class="rings"><svg viewBox="0 0 200 200">${ring(t.kcal,s.goalCalories,81,'#ff5673')}${ring(t.min,s.goalMinutes,60,'#8585fb')}</svg><div class="middle"><span class="huge">${t.min}</span><span class="sub">Trainingsminuten</span></div></div><div class="metrics"><div class="metric"><b style="color:#fa5975;font-size:12px">● Energie</b><div class="value">${t.kcal} <span class="sub">kcal</span></div><div class="sub">Ziel ${s.goalCalories}</div></div><div class="metric"><b style="color:#8585fb;font-size:12px">● Bewegung</b><div class="value">${t.min} <span class="sub">Min</span></div><div class="sub">Ziel ${s.goalMinutes}</div></div></div></div><div class="card"><div class="row"><div><b>Wasser heute</b><div class="sub">${Number(s.water[day()]||0)} / ${s.waterGoal} ml</div></div><button class="btn" data-action="waterAdd">+ 250 ml</button></div><div class="progressTrack"><div class="progressFill" style="width:${Math.min(100,100*Number(s.water[day()]||0)/s.waterGoal)}%;background:#55a9e8"></div></div><button class="btn" data-tab="settings" style="margin-top:10px">Trinkziel bearbeiten</button></div><div class="card"><div class="row"><div><b>Dein Trainingsplan</b><div class="sub">Erstelle deinen persönlichen Wochenplan</div></div><button class="btn" data-action="openPlanner">Plan erstellen</button></div></div><div class="row"><h2 class="section">Dein nächstes Training</h2><button class="btn" data-tab="train">Alle →</button></div><div class="card">${workoutRow(s.workouts[0]||presets[0])}</div><div class="card"><div class="row"><b>Geplante Trainings</b><button class="btn" data-tab="calendar">Kalender →</button></div><div class="sub" style="margin-top:8px">${s.plans.filter(p=>p.day>=day()).length} anstehende Termine</div></div>`}
-function train(){if(s.active){let w=find(s.active.id)||s.active;return hdr('AKTIVES TRAINING',safe(w.name))+`<div class="card" style="text-align:center"><div class="sub">Deine Trainingszeit</div><div class="timer" id="timer">00:00</div><p class="sub">Der Timer stoppt automatisch, sobald deine Trainingszeit erreicht ist. Dann hörst du einen Signalton und deine Truhe erscheint direkt.</p></div>${(w.exercises||[]).length?`<div class="card"><b>Übungen & Sätze</b><p class="sub">Hake jeden Satz ab und passe deine Werte an.</p>${w.exercises.map((e,i)=>`<div class="exercise"><b class="small">${safe(e.name)}</b>${Array.from({length:Math.min(30,Math.max(1,Number(e.sets)||1))},(_,j)=>{let key=i+'-'+j;let entry=s.trainingSets[key]||{reps:e.reps,weight:e.weight,done:false};return `<div class="setrow"><button class="setcheck ${entry.done?'checked':''}" data-setdone="${key}">${entry.done?'✓':j+1}</button><label>Wdh.<input class="input slim" type="number" min="0" max="1000" data-setfield="${key}" data-field="reps" value="${entry.reps}"></label><label>kg<input class="input slim" type="number" min="0" max="1000" step="0.5" data-setfield="${key}" data-field="weight" value="${entry.weight}"></label></div>`}).join('')}</div>`).join('')}</div>`:''}<div class="card"><div class="row"><b>Pausentimer</b><b id="restClock">${s.restUntil>Date.now()?'läuft':'bereit'}</b></div><div class="chips"><button class="btn" data-rest="30">30 Sek.</button><button class="btn" data-rest="60">60 Sek.</button><button class="btn" data-rest="90">90 Sek.</button><button class="btn" data-rest="0">Stopp</button></div></div><div class="card" id="rewardTimeGate"><b>⏱ Truhen-Freigabe</b><p class="sub" id="rewardTimeText">${rewardTimeInfo().ready?'✓ Trainingszeit erreicht! Truhen sind jetzt freigeschaltet.':'Noch '+rewardTimeLabel(rewardTimeInfo().remaining)+' bis zu deinen Truhen. Du kannst vorher abschließen, bekommst dann aber keine Truhe.'}</p></div><button class="primary" data-action="finish">Training abschließen</button><button class="primary outline" data-action="cancel">Verwerfen</button>`}
+function train(){if(s.active){let w=find(s.active.id)||s.active;return hdr('AKTIVES TRAINING',safe(w.name))+`<div class="card" style="text-align:center"><div class="sub">Deine Trainingszeit</div><div class="timer" id="timer">00:00</div><p class="sub">Der Timer stoppt automatisch, sobald deine Trainingszeit erreicht ist. Dann hörst du einen Signalton und deine Truhe erscheint direkt.</p></div>${(w.exercises||[]).length?`<div class="card"><b>Übungen & Sätze</b><p class="sub">Hake jeden Satz ab und passe deine Werte an.</p>${w.exercises.map((e,i)=>`<div class="exercise"><b class="small">${safe(e.name)}</b>${Array.from({length:Math.min(30,Math.max(1,Number(e.sets)||1))},(_,j)=>{let key=i+'-'+j;let entry=s.trainingSets[key]||{reps:e.reps,weight:e.weight,done:false};return `<div class="setrow"><button class="setcheck ${entry.done?'checked':''}" data-setdone="${key}">${entry.done?'✓':j+1}</button><label>Wdh.<input class="input slim" type="number" min="0" max="1000" data-setfield="${key}" data-field="reps" value="${entry.reps}"></label><label>kg<input class="input slim" type="number" min="0" max="1000" step="0.5" data-setfield="${key}" data-field="weight" value="${entry.weight}"></label></div>`}).join('')}</div>`).join('')}</div>`:''}<div class="card" id="rewardTimeGate"><b>⏱ Truhen-Freigabe</b><p class="sub" id="rewardTimeText">${rewardTimeInfo().ready?'✓ Trainingszeit erreicht! Truhen sind jetzt freigeschaltet.':'Noch '+rewardTimeLabel(rewardTimeInfo().remaining)+' bis zu deinen Truhen. Du kannst vorher abschließen, bekommst dann aber keine Truhe.'}</p></div><button class="primary" data-action="finish">Training abschließen</button><button class="primary outline" data-action="cancel">Verwerfen</button>`}
 if(s.view==='form')return form();if(s.view==='library')return libraryView();if(s.view==='planner')return plannerView();return hdr('DEINE WORKOUTS','Training gestalten.')+`<button class="primary" data-action="new">+ Eigenes Training erstellen</button><div class="row" style="margin-top:9px"><button class="btn" data-action="openLibrary">Übungsbibliothek</button><button class="btn" data-action="openPlanner">Wochenplan-Generator</button></div><h2 class="section">Meine Trainings</h2><div class="card">${s.workouts.length?s.workouts.map(workoutRow).join(''):'<div class="sub">Noch keine eigenen Trainings angelegt.</div>'}</div><h2 class="section">Vorgegebene Trainings</h2><div class="card">${presets.map(workoutRow).join('')}</div>`}
 function form(){const x=s.edit?find(s.edit):null;let ex=s.draftExercises||[];return hdr('WORKOUT-EDITOR',x?'Training bearbeiten':'Eigenes Training erstellen')+`<form id="workoutForm" class="card"><label class="field">Name des Trainings</label><input required maxlength="70" class="input" name="name" placeholder="z. B. Oberkörper" value="${safe(x?.name||'')}"><label class="field">Trainingsart</label><select class="input" name="type">${['Kraft','Ausdauer','Beweglichkeit','Intervall','Sonstiges'].map(o=>`<option ${x?.type===o?'selected':''}>${o}</option>`).join('')}</select><div class="formgrid"><div><label class="field">Dauer (Min.)</label><input class="input" required name="min" type="number" min="1" max="600" value="${x?.min||30}"></div><div><label class="field">Kalorien-Schätzung</label><input class="input" required name="kcal" type="number" min="0" max="2500" value="${x?.kcal??200}"></div></div><h2 class="section">Übungen</h2><div id="exerciseList">${ex.map((e,i)=>`<div class="exercise"><div class="row"><b>${safe(e.name)}</b><button type="button" class="btn danger" data-exremove="${i}">Entfernen</button></div><div class="sub">${e.sets} Sätze × ${e.reps} Wdh. · ${e.weight} kg</div></div>`).join('')}</div><button class="btn" type="button" data-action="addExercise" style="width:100%;margin-top:12px">+ Übung hinzufügen</button><button type="submit" class="primary">Training speichern</button><button type="button" class="primary outline" data-action="formcancel">Abbrechen</button>${x?`<button type="button" class="primary outline danger" data-action="deleteWorkout">Training löschen</button>`:''}</form>`}
 function calendar(){let [y,m]=s.calMonth.split('-').map(Number),first=new Date(y,m-1,1),offset=(first.getDay()+6)%7,days=new Date(y,m,0).getDate();let cells=Array.from({length:offset},()=>'<div></div>').concat(Array.from({length:days},(_,i)=>{let date=`${s.calMonth}-${String(i+1).padStart(2,'0')}`,done=s.history.some(h=>h.day===date),planned=s.plans.some(p=>p.day===date);return `<button class="day ${s.selectedDay===date?'selected':''} ${done?'done':''} ${planned?'planned':''}" data-date="${date}">${i+1}</button>`}));let picked=s.selectedDay;return hdr('TRAININGSPLANUNG','Dein Kalender.')+`<div class="card"><div class="row"><button class="btn" data-month="-1">‹</button><b>${first.toLocaleDateString('de-DE',{month:'long',year:'numeric'})}</b><button class="btn" data-month="1">›</button></div><div class="calendar" style="margin:18px 0 10px">${['Mo','Di','Mi','Do','Fr','Sa','So'].map(x=>`<div class="sub" style="text-align:center">${x}</div>`).join('')}${cells.join('')}</div><div class="sub">Punkt = absolviertes Training · Rahmen = geplant</div></div><div class="card"><b>${new Date(picked+'T12:00:00').toLocaleDateString('de-DE',{weekday:'long',day:'numeric',month:'long'})}</b><div style="margin-top:12px">${s.plans.filter(p=>p.day===picked).map(p=>`<div class="item"><div class="grow"><b class="small">${safe(find(p.workoutId)?.name||p.name||'Training')}</b><div class="sub">Geplant</div></div><button class="btn" data-removeplan="${safe(p.id)}">Löschen</button></div>`).join('')||'<div class="sub">Noch kein Training geplant.</div>'}</div><form id="planForm"><input type="hidden" name="day" value="${picked}"><label class="field">Training für diesen Tag einplanen</label><select class="input" name="workoutId">${all().map(w=>`<option value="${safe(w.id)}">${safe(w.name)}</option>`).join('')}</select><button type="submit" class="primary">+ Termin hinzufügen</button></form></div>`}
@@ -101,7 +101,7 @@ const prevExport4=doExport;doExport=function(){const payload={app:'FitnessPlus',
 
 $('#importFile').addEventListener('change',async e=>{let file=e.target.files?.[0];if(!file)return;try{let p=JSON.parse(await file.text());if(p.app!=='FitnessPlus'||!p.data||!Array.isArray(p.data.workouts)||!Array.isArray(p.data.history))throw Error('Format');if(!confirm('Aktuelle Daten durch diese Sicherung ersetzen?'))return;let x=p.data;s={...s,goalMinutes:Number(x.goalMinutes)||45,goalCalories:Number(x.goalCalories)||400,goalSteps:Number(x.goalSteps)||8000,steps:x.steps&&typeof x.steps==='object'?x.steps:{},workouts:x.workouts,history:x.history,plans:Array.isArray(x.plans)?x.plans:[],reminders:Array.isArray(x.reminders)?x.reminders:[],water:x.water&&typeof x.water==='object'?x.water:{},waterGoal:Number(x.waterGoal)||2000,theme:x.theme==='dark'?'dark':'light',profile:x.profile&&typeof x.profile==='object'?{nickname:String(x.profile.nickname||'').slice(0,32),focus:String(x.profile.focus||'allround'),days:Math.min(7,Math.max(1,Number(x.profile.days)||3))}:{nickname:'',focus:'allround',days:3},tab:'home',view:'',active:null};s.challenges=Array.isArray(x.challenges)?x.challenges:[];s.homeWidgets=Array.isArray(x.homeWidgets)?x.homeWidgets:['activity','water','next','calendar','achievements','challenges'];s.restDefault=Number(x.restDefault)||60;save();render();toast('Daten importiert')}catch(err){toast('Diese Datei ist keine gültige FitnessPlus-Sicherung.')}finally{e.target.value=''}});
 document.addEventListener('change',e=>{if(e.target.id==='strengthSelect'){s.strengthExercise=e.target.value;render();return}if(e.target.id==='libSearch')render()});document.addEventListener('submit',e=>{e.preventDefault();if(e.target.id==='profileForm'){const fd=new FormData(e.target);const nickname=String(fd.get('nickname')||'').trim().slice(0,32);const focus=String(fd.get('focus')||'allround');const days=Number(fd.get('days'));s.profile={nickname,focus:['allround','strength','endurance','mobility'].includes(focus)?focus:'allround',days:Number.isInteger(days)&&days>=1&&days<=7?days:3};save();s.view='';render();toast('Profil gespeichert');return}if(e.target.id==='generatorForm'){generatePlan(e.target);return}if(e.target.id==='workoutForm')saveForm(e.target);if(e.target.id==='planForm'){let fd=new FormData(e.target),w=find(fd.get('workoutId'));if(w){s.plans.push({id:uid(),workoutId:w.id,name:w.name,day:String(fd.get('day'))});save();render();toast('Training eingeplant')}}if(e.target.id==='reminderForm'){let fd=new FormData(e.target);s.reminders.push({id:uid(),date:String(fd.get('date')),time:String(fd.get('time')),shown:false});save();render();toast('Erinnerung gespeichert')}});
-document.addEventListener('click',e=>{let b=e.target.closest('button');if(!b)return;if(b.dataset.theme){s.theme=b.dataset.theme;save();render();return}if(b.dataset.libfilter){s.libraryFilter=b.dataset.libfilter;render();return}if(b.dataset.useexercise){s.view='form';s.edit=null;s.tab='train';s.draftExercises=[{id:uid(),name:b.dataset.useexercise,sets:3,reps:10,weight:0}];render();return}if(b.dataset.rest!==undefined){s.restUntil=Date.now()+Number(b.dataset.rest)*1000;timerTick();return}if(b.dataset.setdone){let key=b.dataset.setdone;let [i,j]=key.split('-').map(Number);let w=find(s.active?.id);let ex=w?.exercises?.[i];if(ex){let x=s.trainingSets[key]||{reps:ex.reps,weight:ex.weight,done:false};x.done=!x.done;s.trainingSets[key]=x;render()}return}if(b.dataset.tab){s.tab=b.dataset.tab;s.view='';render();return}if(b.dataset.action==='new'){openForm();return}if(b.dataset.edit){openForm(b.dataset.edit);return}if(b.dataset.exremove!==undefined){s.draftExercises.splice(Number(b.dataset.exremove),1);render();return}if(b.dataset.start){let w=find(b.dataset.start);if(w){window.FP76Start?.();s.active={id:w.id,started:Date.now(),done:[],goalReached:false,stoppedAt:0};s.trainingSets={};s.restUntil=0;s.tab='train';s.view='';render()}return}if(b.dataset.done!==undefined&&s.active){let i=Number(b.dataset.done);s.active.done=s.active.done||[];s.active.done=s.active.done.includes(i)?s.active.done.filter(n=>n!==i):[...s.active.done,i];render();return}if(b.dataset.chart){s.weekType=b.dataset.chart;render();return}if(b.dataset.week){s.weekOffset=Math.max(-104,Math.min(0,(Number(s.weekOffset)||0)+Number(b.dataset.week)));render();return}if(b.dataset.weekhome){s.weekOffset=0;render();return}if(b.dataset.date){s.selectedDay=b.dataset.date;render();return}if(b.dataset.month){let [y,m]=s.calMonth.split('-').map(Number);let d=new Date(y,m-1+Number(b.dataset.month),1);s.calMonth=dkey(d).slice(0,7);s.selectedDay=dkey(d);render();return}if(b.dataset.removeplan){s.plans=s.plans.filter(p=>String(p.id)!==b.dataset.removeplan);save();render();return}if(b.dataset.removereminder){s.reminders=s.reminders.filter(x=>String(x.id)!==b.dataset.removereminder);save();render();return}switch(b.dataset.action){case 'showStrength':s.tab='progress';s.view='strength';render();break;case 'openProfile':s.tab='settings';s.view='profile';render();break;case 'backSettings':s.view='';render();break;case 'showRecords':s.tab='progress';s.view='records';render();break;case 'backProgress':s.view='';render();break;case 'openLibrary':s.tab='train';s.view='library';render();break;case 'openPlanner':s.tab='train';s.view='planner';render();break;case 'backTrain':s.tab='train';s.view='';render();break;case 'waterAdd':s.water[day()]=Math.min(20000,Number(s.water[day()]||0)+250);save();render();break;case 'waterMinus':s.water[day()]=Math.max(0,Number(s.water[day()]||0)-250);save();render();break;case 'addExercise':addExercise();break;case 'formcancel':s.view='';render();break;case 'deleteWorkout':if(confirm('Eigenes Training endgültig löschen?')){s.workouts=s.workouts.filter(w=>String(w.id)!==String(s.edit));s.view='';s.edit=null;save();render()}break;case 'cancel':if(confirm('Training verwerfen?')){s.active=null;render()}break;case 'finish':if(s.active){let w=find(s.active.id);let min=Math.max(1,Math.round((Date.now()-s.active.started)/60000));let kcal=Math.round((w?.kcal||0)*min/Math.max(1,w?.min||30));s.history.push({id:uid(),workoutId:s.active.id,name:w?.name||'Training',day:day(),min,kcal,exercises:(w?.exercises||[]).map((x,i)=>({...x,completedSets:Array.from({length:Number(x.sets)||0},(_,j)=>s.trainingSets[i+'-'+j]||{reps:x.reps,weight:x.weight,done:false}).filter(v=>v.done)}))});s.active=null;s.tab='progress';save();render();toast('Training gespeichert')}break;case 'export':doExport();break;case 'import':$('#importFile').click();break;}});
+document.addEventListener('click',e=>{let b=e.target.closest('button');if(!b)return;if(b.dataset.theme){s.theme=b.dataset.theme;save();render();return}if(b.dataset.libfilter){s.libraryFilter=b.dataset.libfilter;render();return}if(b.dataset.useexercise){s.view='form';s.edit=null;s.tab='train';s.draftExercises=[{id:uid(),name:b.dataset.useexercise,sets:3,reps:10,weight:0}];render();return}if(b.dataset.rest!==undefined){s.restUntil=Date.now()+Number(b.dataset.rest)*1000;timerTick();return}if(b.dataset.setdone){let key=b.dataset.setdone;let [i,j]=key.split('-').map(Number);let w=find(s.active?.id);let ex=w?.exercises?.[i];if(ex){let x=s.trainingSets[key]||{reps:ex.reps,weight:ex.weight,done:false};x.done=!x.done;s.trainingSets[key]=x;render()}return}if(b.dataset.tab){s.tab=b.dataset.tab;s.view='';render();return}if(b.dataset.action==='new'){openForm();return}if(b.dataset.edit){openForm(b.dataset.edit);return}if(b.dataset.exremove!==undefined){s.draftExercises.splice(Number(b.dataset.exremove),1);render();return}if(b.dataset.start){let w=find(b.dataset.start);if(w){window.FP76Start?.(Math.max(1,Math.min(240,Math.ceil(Number(w.min)||30))));s.active={id:w.id,started:Date.now(),done:[],goalReached:false,stoppedAt:0};s.trainingSets={};s.restUntil=0;s.tab='train';s.view='';render()}return}if(b.dataset.done!==undefined&&s.active){let i=Number(b.dataset.done);s.active.done=s.active.done||[];s.active.done=s.active.done.includes(i)?s.active.done.filter(n=>n!==i):[...s.active.done,i];render();return}if(b.dataset.chart){s.weekType=b.dataset.chart;render();return}if(b.dataset.week){s.weekOffset=Math.max(-104,Math.min(0,(Number(s.weekOffset)||0)+Number(b.dataset.week)));render();return}if(b.dataset.weekhome){s.weekOffset=0;render();return}if(b.dataset.date){s.selectedDay=b.dataset.date;render();return}if(b.dataset.month){let [y,m]=s.calMonth.split('-').map(Number);let d=new Date(y,m-1+Number(b.dataset.month),1);s.calMonth=dkey(d).slice(0,7);s.selectedDay=dkey(d);render();return}if(b.dataset.removeplan){s.plans=s.plans.filter(p=>String(p.id)!==b.dataset.removeplan);save();render();return}if(b.dataset.removereminder){s.reminders=s.reminders.filter(x=>String(x.id)!==b.dataset.removereminder);save();render();return}switch(b.dataset.action){case 'showStrength':s.tab='progress';s.view='strength';render();break;case 'openProfile':s.tab='settings';s.view='profile';render();break;case 'backSettings':s.view='';render();break;case 'showRecords':s.tab='progress';s.view='records';render();break;case 'backProgress':s.view='';render();break;case 'openLibrary':s.tab='train';s.view='library';render();break;case 'openPlanner':s.tab='train';s.view='planner';render();break;case 'backTrain':s.tab='train';s.view='';render();break;case 'waterAdd':s.water[day()]=Math.min(20000,Number(s.water[day()]||0)+250);save();render();break;case 'waterMinus':s.water[day()]=Math.max(0,Number(s.water[day()]||0)-250);save();render();break;case 'addExercise':addExercise();break;case 'formcancel':s.view='';render();break;case 'deleteWorkout':if(confirm('Eigenes Training endgültig löschen?')){s.workouts=s.workouts.filter(w=>String(w.id)!==String(s.edit));s.view='';s.edit=null;save();render()}break;case 'cancel':if(confirm('Training verwerfen?')){s.active=null;render()}break;case 'finish':if(s.active){let w=find(s.active.id);let min=Math.max(1,Math.round((Date.now()-s.active.started)/60000));let kcal=Math.round((w?.kcal||0)*min/Math.max(1,w?.min||30));s.history.push({id:uid(),workoutId:s.active.id,name:w?.name||'Training',day:day(),min,kcal,exercises:(w?.exercises||[]).map((x,i)=>({...x,completedSets:Array.from({length:Number(x.sets)||0},(_,j)=>s.trainingSets[i+'-'+j]||{reps:x.reps,weight:x.weight,done:false}).filter(v=>v.done)}))});s.active=null;s.tab='progress';save();render();toast('Training gespeichert')}break;case 'export':doExport();break;case 'import':$('#importFile').click();break;}});
 document.addEventListener('input',e=>{if(e.target.id==='libSearch'){s.librarySearch=e.target.value;return}if(e.target.dataset.setfield){let key=e.target.dataset.setfield;let [i,j]=key.split('-').map(Number);let ex=find(s.active?.id)?.exercises?.[i];if(ex){let entry=s.trainingSets[key]||{reps:ex.reps,weight:ex.weight,done:false};let v=Number(e.target.value);if(Number.isFinite(v)&&v>=0&&v<=1000)entry[e.target.dataset.field]=v;s.trainingSets[key]=entry}return}let k=e.target.dataset.range;if(k){s[k]=Number(e.target.value);let el=$(`#v-${k}`);if(el)el.textContent=s[k];save()}});
 
 // FitnessPlus 4.1: virtueller Diamantboxen-Shop ohne reale Käufe.
@@ -155,11 +155,12 @@ function handleGoalReached(){
  let box=null;
  if(!window.FP76Online&&!s.rewardClaims[claim]){
   s.rewardClaims[claim]=true;
-  box={id:uid(),name:(w?.name||'Training')+' Zeittruhe'};
+  box={id:uid(),name:(w?.name||'Training')+' Zeittruhe',timeChest:true};
   s.rewardBoxes.push(box);
  }
  save();render();playGoalAlarm();
  if(box)showEarnedBox(box);
+ else if(window.FP76Online)window.FP76TimeChest?.();
  else toast('Trainingszeit geschafft!');
 }
 function rewardSummary(){return `<div class="card shopEntryCard"><div class="row"><div class="grow"><b>💎 Diamanten Store</b><div class="sub">Level-Booster kaufen und Freunde beschenken.</div></div><button class="btn" data-action="storeOpen">Zum Shop →</button></div></div>`}
@@ -171,6 +172,18 @@ function rewardView(){return hdr('DEINE BELOHNUNGEN','Diamantboxen.')+`<button c
 let rewardModal=null;
 let rewardAnimationTimer=null;
 let rewardDismissTimer=null;
+function fpFinishAfterTimeChest(){
+ if(s.active){
+  const current=s.active,w=find(current.id)||current;
+  const started=Number(current.started)||Date.now();
+  const elapsed=Math.max(0,(Number(current.stoppedAt)||Date.now())-started);
+  const min=Math.max(1,Math.round(elapsed/60000));
+  const kcal=Math.round((Number(w?.kcal)||0)*min/Math.max(1,Number(w?.min)||30));
+  s.history.push({id:uid(),workoutId:current.id,name:w?.name||'Training',day:day(),min,kcal,exercises:(w?.exercises||[]).map((x,i)=>({...x,completedSets:Array.from({length:Math.min(30,Number(x.sets)||0)},(_,j)=>s.trainingSets[i+'-'+j]||{reps:x.reps,weight:x.weight,done:false}).filter(v=>v.done)}))});
+ }
+ s.active=null;s.tab='home';s.view='';window.FPTimeChestCompleted=false;
+ save();render();
+}
 function rewardModalRender(){
  const overlay=$('#fxOverlay'); if(!overlay)return;
  if(!rewardModal){overlay.classList.remove('show');overlay.innerHTML='';return}
@@ -192,6 +205,8 @@ function openRewardBox(id){
  if(rewardModal?.mode!=='earned'||String(rewardModal.id)!==String(id))return;
  const idx=s.rewardBoxes.findIndex(b=>String(b.id)===String(id));if(idx<0)return;
  const box=s.rewardBoxes.splice(idx,1)[0];
+ const isTimeChest=!!box.timeChest||/Zeittruhe/i.test(String(box.name||''));
+ if(isTimeChest){s.levelExercises=Math.max(0,Number(s.levelExercises)||0)+1;window.FPTimeChestCompleted=true;}
  const r=Math.random();const rarity=r<.70?'Episch':r<.94?'Mythisch':'Legendär';
  const amount=rarity==='Episch'?10+Math.floor(Math.random()*11):rarity==='Mythisch'?25+Math.floor(Math.random()*16):60+Math.floor(Math.random()*41);
  const emoji=rarity==='Episch'?'💠':rarity==='Mythisch'?'🔮':'👑';
@@ -200,7 +215,7 @@ function openRewardBox(id){
 }
 document.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;
  if(b.dataset.chestopen!==undefined){e.preventDefault();e.stopImmediatePropagation();openRewardBox(b.dataset.chestopen)}
- if(b.dataset.chestclose!==undefined){e.preventDefault();e.stopImmediatePropagation();rewardModal=null;rewardModalRender()}
+ if(b.dataset.chestclose!==undefined){e.preventDefault();e.stopImmediatePropagation();rewardModal=null;rewardModalRender();if(window.FPTimeChestCompleted)fpFinishAfterTimeChest()}
 },true);
 const normalRender41=render;render=function(){normalRender41();if(s.view==='rewards')$('#page').innerHTML=rewardView()};
 // capture before older dispatcher so it does not toggle twice
@@ -735,7 +750,7 @@ let revision=0, loggedIn=false, busy=false, queued=false, conflict=false, lastSe
 const setStatus=t=>{};
 const api=async(method,url,data)=>{let r=await fetch(url,{method,credentials:'same-origin',headers:data?{'Content-Type':'application/json'}:{},body:data?JSON.stringify(data):undefined});let x=await r.json();if(!r.ok)throw Object.assign(Error(x.error||'Serverfehler'),{status:r.status});return x};
 const clean=()=>{let x={...s};for(let k of ['active','view','edit','draftExercises','tab','calMonth','selectedDay','weekOffset','libraryFilter','restUntil'])delete x[k];return x};
-const merge=(remote,user)=>{let ui={tab:s.tab,theme:s.theme,active:null,view:'',edit:null,draftExercises:[]};s={...s,...remote,...ui,diamonds:user.diamonds,levelExercises:user.xp};try{localStorage.setItem(KEY,JSON.stringify(s))}catch{}render()};
+const merge=(remote,user)=>{const currentTraining=s.active;const currentSets=s.trainingSets;let ui={tab:s.tab,theme:s.theme,active:currentTraining,view:s.view,edit:s.edit,draftExercises:s.draftExercises||[]};s={...s,...remote,...ui,diamonds:user.diamonds,levelExercises:user.xp};if(currentTraining)s.trainingSets=currentSets;try{localStorage.setItem(KEY,JSON.stringify({...s,active:null,view:'',edit:null,draftExercises:[]}))}catch{}render()};
 async function init(){if(busy)return;busy=true;try{
  const x=await api('GET','/api/state');loggedIn=true;revision=x.revision;
  if(x.state){let local=clean();let hasLocal=(local.history||[]).length||(local.workouts||[]).length||(local.diamonds||0)||(local.levelExercises||0);
@@ -768,7 +783,26 @@ let runId='',pending=new Set(),starting=null;
 const req=async (url,data)=>{let r=await fetch(url,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(data||{})});let x=await r.json();if(!r.ok)throw Error(x.error||'Server nicht erreichbar');return x};
 const status=async()=>{try{let r=await fetch('/api/game',{credentials:'same-origin',cache:'no-store'});if(!r.ok)return;let x=await r.json();s.diamonds=x.user.diamonds;s.levelExercises=x.user.xp;s.levelBoostMultiplier=x.booster.multiplier;s.levelBoostUses=x.booster.uses;s.rewardBoxes=x.chests.map(t=>({id:t.id,name:'Online-Truhe'}));render()}catch{}};
 window.FP76Refresh=status;
-window.FP76Start=()=>{if(!window.FP76Online)return;runId='';starting=req('/api/game/start').then(x=>runId=x.runId).catch(e=>toast('Online-Training nicht gestartet: '+e.message))};
+window.FP76Start=durationMinutes=>{
+ if(!window.FP76Online)return;
+ runId='';starting=req('/api/game/start',{durationMinutes}).then(x=>{runId=x.runId}).catch(e=>toast('Online-Training nicht gestartet: '+e.message));
+};
+let timeChestPending=false;const fpOnlineTimeChestIds=new Set();
+window.FP76TimeChest=async()=>{
+ if(!window.FP76Online||timeChestPending)return;
+ timeChestPending=true;
+ try{
+  if(starting)await starting;
+  if(!runId)throw Error('Online-Training konnte nicht gestartet werden. Bitte neues Training beginnen.');
+  let x;
+  for(let attempt=0;attempt<5;attempt++){
+   try{x=await req('/api/game/time-chest',{runId});break}
+   catch(e){if(!/Trainingszeit ist noch nicht erreicht/.test(e.message)||attempt===4)throw e;await new Promise(resolve=>setTimeout(resolve,1200))}
+  }
+  await status();
+  fpOnlineTimeChestIds.add(String(x.chestId));showEarnedBox({id:x.chestId,name:'Zeittruhe'});
+ }catch(e){toast('Zeittruhe: '+e.message)}finally{timeChestPending=false}
+};
 window.FP76Exercise=async claim=>{
  if(!window.FP76Online||s.levelExerciseClaims[claim]||pending.has(claim))return;
  const ix=Number(String(claim).split(':').pop());if(!Number.isInteger(ix))return;
@@ -781,7 +815,8 @@ window.FP76Exercise=async claim=>{
  }catch(e){toast(e.message)}finally{pending.delete(claim)}
 };
 const openCloudChest=async id=>{
- try{const x=await req('/api/game/chest/open',{chestId:id});s.diamonds=x.user.diamonds;
+ try{const x=await req('/api/game/chest/open',{chestId:id});s.diamonds=x.user.diamonds;s.levelExercises=x.user.xp;
+  if(fpOnlineTimeChestIds.has(String(id))){fpOnlineTimeChestIds.delete(String(id));window.FPTimeChestCompleted=true;}
   s.rewardBoxes=s.rewardBoxes.filter(b=>String(b.id)!==String(id));
   s.rewardHistory.push({name:'Online-Truhe',date:day(),amount:x.diamonds,rarity:x.rarity});
   rewardModal={mode:'opened',name:'Online-Truhe',amount:x.diamonds,rarity:x.rarity,emoji:x.rarity==='Episch'?'💠':x.rarity==='Mythisch'?'🔮':'👑'};
@@ -796,7 +831,7 @@ window.addEventListener('click',async e=>{
  if(b.dataset.boostbuy!==undefined){e.preventDefault();e.stopPropagation();e.stopImmediatePropagation();
   const item=levelBoosters.find(i=>i.id===b.dataset.boostbuy);if(!item)return;
   if(!confirm(item.name+' für '+item.price+' Diamanten online kaufen?'))return;
-  try{const x=await req('/api/game/shop/buy',{item:item.id});s.diamonds=x.user.diamonds;s.levelBoostUses=x.booster.uses;s.levelBoostMultiplier=x.booster.multiplier;save();render();toast(item.name+' online aktiviert!')}
+  try{const x=await req('/api/game/shop/buy',{item:item.id,expectedPrice:item.price});s.diamonds=x.user.diamonds;s.levelBoostUses=x.booster.uses;s.levelBoostMultiplier=x.booster.multiplier;save();render();toast(item.name+' online aktiviert!')}
   catch(err){toast(err.message)}return;
  }
  if(b.dataset.dailyclaim!==undefined){e.preventDefault();e.stopPropagation();e.stopImmediatePropagation();
@@ -862,134 +897,123 @@ document.addEventListener('click',async e=>{const b=e.target.closest('button');i
  if(d.fpofSend!==undefined){const text=String($('#fpofMessage')?.value||'').trim();if(!text)return;await fpFriendsApi('chat/send',{friendId:fpFriendsOnline.chat.id,text});await fpFriendsReloadChat();return}
  }catch(err){if(err.name!=='AbortError')toast(err.message||'Verbindung fehlgeschlagen')}},true);
 
-})();
 
+// FitnessPlus: Nur Online-Diamanten direkt an bestaetigte Freunde verschenken.
+// Kein Code, kein Offline-Geschenk, keine Booster- oder Level-Einloesefunktion im Menue.
+const fpGiftOnline={friends:[],loading:false,loaded:false,error:'',busy:false};
+const fpGiftApi=async (endpoint,data)=>{
+ const response=await fetch('/api/'+endpoint,{method:data?'POST':'GET',credentials:'same-origin',cache:'no-store',headers:data?{'Content-Type':'application/json'}:{},body:data?JSON.stringify(data):undefined});
+ const result=await response.json();
+ if(!response.ok)throw Error(result.error||'Online-Verbindung fehlgeschlagen');
+ return result;
+};
+async function fpGiftLoad(){
+ if(fpGiftOnline.loading)return;
+ fpGiftOnline.loading=true;fpGiftOnline.error='';
+ try{const [m,f]=await Promise.all([fpGiftApi('me'),fpGiftApi('friends')]);
+  fpGiftOnline.friends=f.friends||[];
+  s.diamonds=Number(m.user.diamonds)||0;
+  fpGiftOnline.loaded=true;
+ }catch(e){fpGiftOnline.error=e.message;fpGiftOnline.loaded=false;fpGiftOnline.friends=[]}
+ finally{fpGiftOnline.loading=false;if(s.view==='gifts')render()}
+}
+// Bestehende Versions-Wrapper werden bewusst durch die finale Ansicht ersetzt.
+giftScreen=function(){
+ const f=fpGiftOnline;
+ const options=f.friends.map(x=>`<option value="${safe(x.id)}">${safe(x.name)} · Level ${Number(x.level)||1}</option>`).join('');
+ return hdr('DIAMANTEN VERSCHENKEN','Freunden eine Freude machen.')+
+ `<button class="btn" data-giftback="1">← Zum Diamanten Store</button>
+ <section class="boosterHero"><div class="shopKicker">DEINE ONLINE-DIAMANTEN</div><div class="boosterBalance">💎 ${Math.max(0,Math.floor(Number(s.diamonds)||0))}</div><div class="boosterStatus">🎁 Diamanten gehen direkt auf das Online-Konto deines Freundes.</div></section>
+ <div class="card"><b>💎 Diamanten senden</b><p class="sub">Wähle einen Freund aus deiner Online-Freundesliste und gib die Anzahl der Diamanten ein. Der Betrag wird dir abgezogen und deinem Freund sofort gutgeschrieben.</p>
+ ${f.error?`<p class="sub" role="alert">${safe(f.error)}</p>`:''}
+ <label class="field" for="fpOnlineGiftFriend">Online-Freund auswählen</label>
+ <select class="input" id="fpOnlineGiftFriend" ${f.loading||!f.friends.length?'disabled':''}><option value="">${f.loading?'Freunde werden geladen …':f.friends.length?'Freund auswählen':'Keine Online-Freunde vorhanden'}</option>${options}</select>
+ <label class="field" for="fpOnlineGiftAmount">Diamantenanzahl</label>
+ <input class="input" id="fpOnlineGiftAmount" type="number" inputmode="numeric" min="1" max="100000" step="1" placeholder="z. B. 50">
+ <button class="primary" data-online-gift-send="1" ${f.loading||f.busy||!f.friends.length?'disabled':''}>💎 ${f.busy?'Wird übertragen …':'Diamanten verschenken'}</button>
+ <button class="btn" data-online-gift-refresh="1" style="margin-top:12px">Freundesliste aktualisieren</button>
+ ${f.loaded&&!f.friends.length?'<p class="sub">Füge zuerst unter „Freunde“ jemanden mit seinem Online-Freundes-Code hinzu.</p>':''}</div>`;
+};
+const fpGiftOldStoreScreen=storeScreen;
+storeScreen=function(){return fpGiftOldStoreScreen().replace('Booster verschenken','Diamanten verschenken')};
+// Die bereits vorhandenen Codes funktionieren nicht mehr als sichtbare Geschenkfunktionen.
+window.addEventListener('click',async e=>{
+ const b=e.target.closest('button');if(!b)return;
+ if(b.dataset.giftmenu!==undefined){
+  e.preventDefault();e.stopImmediatePropagation();s.view='gifts';fpGiftOnline.loaded=false;render();void fpGiftLoad();return;
+ }
+ if(b.dataset.onlineGiftRefresh!==undefined){e.preventDefault();e.stopImmediatePropagation();void fpGiftLoad();return}
+ if(b.dataset.onlineGiftSend===undefined)return;
+ e.preventDefault();e.stopImmediatePropagation();
+ if(fpGiftOnline.busy)return;
+ const friendId=String($('#fpOnlineGiftFriend')?.value||'');
+ const raw=String($('#fpOnlineGiftAmount')?.value||'').trim();
+ const amount=Number(raw);
+ const friend=fpGiftOnline.friends.find(x=>x.id===friendId);
+ if(!friend){toast('Bitte einen Online-Freund auswählen.');return}
+ if(!raw||!Number.isSafeInteger(amount)||amount<1||amount>100000){toast('Bitte 1 bis 100.000 Diamanten eingeben.');return}
+ if(amount>Number(s.diamonds)){toast('Nicht genug Diamanten.');return}
+ if(!confirm(`${amount.toLocaleString('de-DE')} 💎 wirklich an ${friend.name} senden?`))return;
+ fpGiftOnline.busy=true;
+ try{
+  const answer=await fpGiftApi('gifts/send',{kind:'diamonds',friendId,amount});
+  s.diamonds=answer.user.diamonds;
+  render();toast(`${amount.toLocaleString('de-DE')} 💎 an ${friend.name} gesendet!`);
+ }catch(err){toast(err.message||'Übertragung fehlgeschlagen')}
+ finally{fpGiftOnline.busy=false;render()}
+},true);
+// Beim erneuten Aufrufen der Geschenkseite Online-Freunde laden.
+const fpGiftPreviousRender=render;
+render=function(){fpGiftPreviousRender();if(s.view==='gifts'&&!fpGiftOnline.loaded&&!fpGiftOnline.loading&&!fpGiftOnline.error)void fpGiftLoad()};
 
-// FitnessPlus Booster UI Fix: only one small booster badge, placed slightly higher,
-// and the remaining-uses display decreases by 1 whenever one exercise is completed.
-(()=>{'use strict';
-  function fpBoosterLabel(){
-    const uses=Math.max(0, Math.floor(Number(s.levelBoostUses)||0));
-    const mult=([2,3].includes(Number(s.levelBoostMultiplier))?Number(s.levelBoostMultiplier):2);
-    if(!uses) return '';
-    return `⚡ ${mult}× Level-Booster aktiv · ${uses} Übung${uses===1?'':'en'} übrig`;
+// FitnessPlus: Shoppreise aus Admin-Verwaltung aktualisieren.
+let fpShopPricesLoaded=false,fpShopPricesBusy=false;
+async function fpRefreshShopPrices(){
+ if(fpShopPricesBusy)return;
+ fpShopPricesBusy=true;
+ try{
+  const response=await fetch('/api/shop',{credentials:'same-origin',cache:'no-store'});
+  const data=await response.json();
+  if(!response.ok)throw Error(data.error||'Shop-Preise konnten nicht geladen werden');
+  if(!Array.isArray(data.items))throw Error('Shop-Antwort ungueltig');
+  for(const product of levelBoosters){
+   const updated=data.items.find(x=>x.id===product.id);
+   product.active=!!updated;
+   if(updated&&Number.isSafeInteger(Number(updated.price))&&Number(updated.price)>0){
+    product.price=Number(updated.price);
+    product.name=String(updated.name||product.name);
+   }
   }
-
-  function fpRemoveLargeBoosterCards(){
-    const page=document.getElementById('page');
-    if(!page) return;
-    const nodes=[...page.querySelectorAll('section, article, .card, .item, .shopHubStatus, div')];
-    for(const el of nodes){
-      if(!el || el.id==='fp-booster-pill') continue;
-      const txt=(el.innerText||'').replace(/\s+/g,' ').trim();
-      if(!txt) continue;
-      const looksLikeBooster = /(?:Level-Booster aktiv|Zurzeit kein Booster aktiv|Übungen übrig)/i.test(txt);
-      if(!looksLikeBooster) continue;
-      const isShopArea = !!el.closest('.shopNewGrid, .boosterGrid, .giftEntry, .shopHubHead');
-      if(isShopArea) continue;
-      const isSmall = (el.offsetHeight||0) < 78 && (el.offsetWidth||0) < 420;
-      if(isSmall) continue;
-      el.style.display='none';
-    }
+  fpShopPricesLoaded=true;
+  if(s.view==='store')render();
+ }catch(err){
+  fpShopPricesLoaded=false;
+  toast('Shop konnte nicht aktualisiert werden: '+(err.message||'Verbindung'));
+ }finally{fpShopPricesBusy=false}
+}
+const fpShopOldScreen=storeScreen;
+storeScreen=function(){
+ let html=fpShopOldScreen();
+ html=html.replace('<div class="shopSectionHead">','<button type="button" class="primary outline" data-fp-shop-refresh="1" style="margin:14px 0">🔄 Shop aktualisieren</button><div class="shopSectionHead">');
+ if(!fpShopPricesLoaded)html=html.replace(/data-boostbuy="([^"]+)"/g,'data-boostbuy="$1" disabled');
+ for(const item of levelBoosters){
+  if(item.active===false){
+   const expression='data-boostbuy="'+item.id+'"';
+   html=html.replace(expression,expression+' disabled');
   }
+ }
+ return html;
+};
+window.addEventListener('click',e=>{
+ const btn=e.target.closest('button[data-fp-shop-refresh]');
+ if(!btn)return;
+ e.preventDefault();e.stopImmediatePropagation();
+ void fpRefreshShopPrices();
+},true);
+const fpShopOldRender=render;
+render=function(){
+ fpShopOldRender();
+ if(s.view==='store'&&!fpShopPricesLoaded&&!fpShopPricesBusy)void fpRefreshShopPrices();
+};
 
-  function fpEnsureBoosterPill(){
-    let pill=document.getElementById('fp-booster-pill');
-    if(!pill){
-      pill=document.createElement('div');
-      pill.id='fp-booster-pill';
-      pill.setAttribute('aria-live','polite');
-      pill.style.position='fixed';
-      pill.style.left='50%';
-      pill.style.transform='translateX(-50%)';
-      pill.style.bottom='102px';
-      pill.style.zIndex='9999';
-      pill.style.maxWidth='calc(100vw - 34px)';
-      pill.style.minWidth='230px';
-      pill.style.padding='14px 18px';
-      pill.style.borderRadius='22px';
-      pill.style.background='linear-gradient(135deg,#1f2c63 0%, #0f7f8b 100%)';
-      pill.style.color='#fff';
-      pill.style.boxShadow='0 12px 28px rgba(0,0,0,.22)';
-      pill.style.fontWeight='800';
-      pill.style.fontSize='17px';
-      pill.style.lineHeight='1.2';
-      pill.style.textAlign='left';
-      pill.style.pointerEvents='none';
-      pill.style.backdropFilter='blur(8px)';
-      pill.style.webkitBackdropFilter='blur(8px)';
-      document.body.appendChild(pill);
-    }
-    const label=fpBoosterLabel();
-    if(!label){
-      pill.style.display='none';
-      pill.textContent='';
-      return;
-    }
-    pill.style.display='block';
-    pill.textContent=label;
-  }
-
-  // Force a render refresh after offline level progress updates.
-  const fpRecordLevelExercise = recordLevelExercise;
-  recordLevelExercise = function(claim){
-    const beforeUses = Math.max(0, Math.floor(Number(s.levelBoostUses)||0));
-    fpRecordLevelExercise(claim);
-    const afterUses = Math.max(0, Math.floor(Number(s.levelBoostUses)||0));
-    if(afterUses!==beforeUses || s.levelExerciseClaims?.[claim]){
-      try{ save(); }catch(_e){}
-      try{ render(); }catch(_e){}
-    }
-  };
-
-  // Online mode: decrement booster display immediately, then keep the lower value if the refresh is delayed.
-  if(typeof window.FP76Exercise==='function'){
-    const fpOnlineExercise = window.FP76Exercise;
-    window.FP76Exercise = async function(claim){
-      if(!window.FP76Online) return fpOnlineExercise(claim);
-      const beforeUses = Math.max(0, Math.floor(Number(s.levelBoostUses)||0));
-      const beforeMult = [2,3].includes(Number(s.levelBoostMultiplier)) ? Number(s.levelBoostMultiplier) : 1;
-      const expectedAfter = beforeUses>0 ? beforeUses-1 : 0;
-      if(beforeUses>0 && !s.levelExerciseClaims?.[claim]){
-        s.levelBoostUses = expectedAfter;
-        if(expectedAfter===0) s.levelBoostMultiplier = 1;
-        try{ save(); }catch(_e){}
-        try{ render(); }catch(_e){}
-      }
-      await fpOnlineExercise(claim);
-      // If the online refresh comes back stale, keep the already-spent local display value.
-      if(beforeUses>0 && Math.floor(Number(s.levelBoostUses)||0) > expectedAfter){
-        s.levelBoostUses = expectedAfter;
-        s.levelBoostMultiplier = expectedAfter>0 ? beforeMult : 1;
-        try{ save(); }catch(_e){}
-        try{ render(); }catch(_e){}
-      }
-    };
-  }
-
-  const fpRenderBase = render;
-  render = function(){
-    fpRenderBase();
-    try{ fpRemoveLargeBoosterCards(); }catch(_e){}
-    try{ fpEnsureBoosterPill(); }catch(_e){}
-  };
-
-  document.addEventListener('click',()=>{
-    setTimeout(()=>{
-      try{ fpRemoveLargeBoosterCards(); }catch(_e){}
-      try{ fpEnsureBoosterPill(); }catch(_e){}
-    }, 30);
-  }, true);
-
-  document.addEventListener('visibilitychange',()=>{
-    setTimeout(()=>{
-      try{ fpRemoveLargeBoosterCards(); }catch(_e){}
-      try{ fpEnsureBoosterPill(); }catch(_e){}
-    }, 30);
-  });
-
-  setTimeout(()=>{
-    try{ fpRemoveLargeBoosterCards(); }catch(_e){}
-    try{ fpEnsureBoosterPill(); }catch(_e){}
-  }, 120);
 })();
