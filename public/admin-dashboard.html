@@ -166,7 +166,35 @@ async function load(){
  eventText();
  status('Mit Server verbunden. Änderungen werden sofort gespeichert.');
 }
-el('reload').onclick=()=>attempt(load);el('give').onclick=()=>attempt(async()=>{const amount=Number(el('diamonds').value);if(!confirm(amount+' Diamanten an diesen Nutzer senden?'))return;await api('admin/diamonds','POST',{userId:el('users').value,amount});await load();status('Diamanten erfolgreich auf dem Server gebucht.')});el('setlevel').onclick=()=>attempt(async()=>{const level=Number(el('level').value);if(!confirm('Level auf '+level+' setzen?'))return;await api('admin/level','POST',{userId:el('users').value,level});await load()});el('resetplayer').onclick=()=>attempt(async()=>{const sel=el('users'),name=sel.options[sel.selectedIndex]?.textContent.split(' · Level ')[0];if(!name)throw Error('Bitte Spieler auswählen');const entered=prompt('ACHTUNG: Dieser Spielstand wird vollständig zurückgesetzt. Zum Bestätigen den Spielernamen exakt eingeben: '+name);if(entered!==name){status('Zurücksetzen abgebrochen.');return}if(!confirm('Letzte Bestätigung: Spielstand von '+name+' wirklich dauerhaft zurücksetzen?'))return;await api('admin/reset-player','POST',{userId:sel.value,confirmName:name});await load();status('Spielstand von '+name+' wurde auf dem Server zurückgesetzt.');});el('deleteuser').onclick=()=>attempt(async()=>{const sel=el('users'),selectedPlayer=playerRows.find(p=>String(p.id)===sel.value),name=selectedPlayer?.name;if(!name)throw Error('Bitte zuerst einen Nutzer auswählen');const entered=prompt('ACHTUNG: Der Account und alle Daten werden unwiderruflich gelöscht. Zur Bestätigung den Nutzernamen exakt eingeben: '+name);if(entered!==name){status('Löschen abgebrochen.');return}if(!confirm('LETZTE BESTÄTIGUNG: Account '+name+' und alle zugehörigen Daten wirklich dauerhaft löschen?'))return;await api('admin/delete-user','POST',{userId:sel.value,confirmName:name});await load();status('Account '+name+' wurde dauerhaft gelöscht.');});el('resetlevel').onclick=()=>attempt(async()=>{if(!confirm('Level des gewählten Nutzers wirklich zurücksetzen?'))return;await api('admin/level','POST',{userId:el('users').value,level:1});await load()});let eventSaving=false;
+// Spieler aus einer Liste waehlen; keine Namenseingabe erforderlich.
+function chooseAccountToDelete(){return new Promise(resolve=>{
+ const overlay=document.createElement('div');overlay.style.cssText='position:fixed;inset:0;z-index:99999;background:#0009;display:flex;align-items:center;justify-content:center;padding:16px';
+ const panel=document.createElement('div');panel.setAttribute('role','dialog');panel.setAttribute('aria-modal','true');panel.setAttribute('aria-label','Account zum Loeschen auswaehlen');panel.style.cssText='background:white;color:#173c33;border-radius:18px;padding:20px;width:100%;max-width:480px;max-height:85vh;display:flex;flex-direction:column;box-shadow:0 20px 50px #0004';
+ const title=document.createElement('h2');title.textContent='Account löschen';
+ const info=document.createElement('p');info.textContent='Wähle den Account aus. Danach musst du die dauerhafte Löschung noch einmal bestätigen.';
+ const list=document.createElement('div');list.style.cssText='overflow-y:auto;min-height:0;display:grid;gap:8px;margin:8px 0 16px';
+ const players=playerRows.filter(p=>p.role!=='admin');
+ if(!players.length){const empty=document.createElement('p');empty.textContent='Keine löschbaren Spieler vorhanden.';list.append(empty)}
+ for(const player of players){
+  const btn=document.createElement('button');btn.type='button';btn.style.cssText='text-align:left;background:#f6faf8;color:#173c33;border:1px solid #cfe4da;margin:0;display:flex;justify-content:space-between;align-items:center;gap:12px';
+  const label=document.createElement('span');label.textContent=String(player.name)+' · Level '+String(player.level);
+  const action=document.createElement('strong');action.textContent='Löschen';action.style.color='#9f2432';btn.append(label,action);
+  btn.onclick=()=>finish({id:String(player.id),name:String(player.name)});list.append(btn);
+ }
+ const cancel=document.createElement('button');cancel.type='button';cancel.className='alt';cancel.textContent='Abbrechen';cancel.onclick=()=>finish(null);
+ panel.append(title,info,list,cancel);overlay.append(panel);document.body.append(overlay);
+ function finish(value){overlay.remove();resolve(value)}
+ overlay.addEventListener('click',e=>{if(e.target===overlay)finish(null)});
+ cancel.focus();
+})}
+el('reload').onclick=()=>attempt(load);el('give').onclick=()=>attempt(async()=>{const amount=Number(el('diamonds').value);if(!confirm(amount+' Diamanten an diesen Nutzer senden?'))return;await api('admin/diamonds','POST',{userId:el('users').value,amount});await load();status('Diamanten erfolgreich auf dem Server gebucht.')});el('setlevel').onclick=()=>attempt(async()=>{const level=Number(el('level').value);if(!confirm('Level auf '+level+' setzen?'))return;await api('admin/level','POST',{userId:el('users').value,level});await load()});el('resetplayer').onclick=()=>attempt(async()=>{const sel=el('users'),name=sel.options[sel.selectedIndex]?.textContent.split(' · Level ')[0];if(!name)throw Error('Bitte Spieler auswählen');const entered=prompt('ACHTUNG: Dieser Spielstand wird vollständig zurückgesetzt. Zum Bestätigen den Spielernamen exakt eingeben: '+name);if(entered!==name){status('Zurücksetzen abgebrochen.');return}if(!confirm('Letzte Bestätigung: Spielstand von '+name+' wirklich dauerhaft zurücksetzen?'))return;await api('admin/reset-player','POST',{userId:sel.value,confirmName:name});await load();status('Spielstand von '+name+' wurde auf dem Server zurückgesetzt.');});el('deleteuser').onclick=()=>attempt(async()=>{
+ const chosen=await chooseAccountToDelete();if(!chosen)return;
+ const current=playerRows.find(p=>String(p.id)===chosen.id&&p.role!=='admin'&&String(p.name)===chosen.name);
+ if(!current)throw Error('Spieler nicht mehr verfügbar. Bitte Liste aktualisieren.');
+ if(!confirm('ACHTUNG: Account „'+chosen.name+'“ und ALLE zugehörigen Daten unwiderruflich löschen?'))return;
+ await api('admin/delete-user','POST',{userId:chosen.id,confirmName:chosen.name});
+ await load();status('Account '+chosen.name+' wurde dauerhaft gelöscht.');
+});el('resetlevel').onclick=()=>attempt(async()=>{if(!confirm('Level des gewählten Nutzers wirklich zurücksetzen?'))return;await api('admin/level','POST',{userId:el('users').value,level:1});await load()});let eventSaving=false;
 async function refreshEventStatus(){const result=await api('events');events=result.events||{};eventText();return events}
 async function saveEvents(patch){
  if(eventSaving)return;
