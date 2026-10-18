@@ -848,12 +848,26 @@ window.addEventListener('click',async e=>{
 
 
 // FitnessPlus: Training ohne Timer als erledigt markieren (ohne Belohnungen).
-const workoutRowBeforeQuickCheck = workoutRow;
+// Trainingskarten auf schmalen Bildschirmen: Informationen oben, Aktionen darunter.
 workoutRow = function(w){
-  const original = workoutRowBeforeQuickCheck(w);
-  const todayDone = s.history.some(h => String(h.workoutId) === String(w.id) && h.day === day() && h.quickCheck === true);
-  const button = `<button type="button" class="btn" data-quickcheck="${safe(String(w.id))}" aria-label="${todayDone?'Training als erledigt markiert – erneut tippen zum Rückgängig machen':'Training ohne Timer als erledigt markieren'}" title="Ohne Timer und ohne Belohnungen" style="display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:42px;padding:10px 14px;border:2px solid ${todayDone?'#16864a':'#27a85f'};border-radius:12px;background:${todayDone?'#147a43':'#e6f8ec'};color:${todayDone?'#ffffff':'#116b3b'};font-weight:800;font-size:14px;white-space:nowrap;cursor:pointer">${todayDone?'✓ Erledigt':'✓ Abhaken'}</button>`;
-  return original.slice(0,-6)+button+'</div>';
+  const todayDone=s.history.some(h=>String(h.workoutId)===String(w.id)&&h.day===day()&&h.quickCheck===true);
+  const own=!String(w.id).startsWith('p');
+  const n=w.exercises?.length||0;
+  const quickButton=`<button type="button" class="btn" data-quickcheck="${safe(String(w.id))}" aria-label="${todayDone?'Training als erledigt markiert – erneut tippen zum Rückgängig machen':'Training ohne Timer als erledigt markieren'}" title="Ohne Timer und ohne Belohnungen" style="flex:1 1 128px;min-height:44px;padding:10px 12px;border:2px solid ${todayDone?'#16864a':'#27a85f'};border-radius:12px;background:${todayDone?'#147a43':'#e6f8ec'};color:${todayDone?'#ffffff':'#116b3b'};font-weight:800;font-size:14px;white-space:nowrap;cursor:pointer">${todayDone?'✓ Erledigt':'✓ Abhaken'}</button>`;
+  return `<div class="item fp-workout-row" style="display:block;padding:18px 0">
+    <div style="display:flex;align-items:center;gap:14px;min-width:0">
+      <div class="symbol" style="flex:0 0 auto">${own?'▣':'✦'}</div>
+      <div style="min-width:0;flex:1">
+        <div class="itemname" style="overflow-wrap:anywhere;line-height:1.3">${safe(w.name)}</div>
+        <div class="sub" style="margin-top:5px;line-height:1.45">${safe(w.type||'Workout')} · ${Number(w.min)||0} Min${n?' · '+n+' Übungen':''}</div>
+      </div>
+    </div>
+    <div style="display:flex;align-items:stretch;gap:9px;flex-wrap:wrap;margin-top:16px">
+      <button class="btn" data-start="${safe(w.id)}" style="flex:1 1 86px;min-height:44px">Start</button>
+      ${own?`<button class="btn" data-edit="${safe(w.id)}" aria-label="Training bearbeiten" style="flex:0 0 48px;min-height:44px">✎</button>`:''}
+      ${quickButton}
+    </div>
+  </div>`;
 };
 document.addEventListener('click',function(e){
   const b=e.target.closest('button[data-quickcheck]');if(!b)return;
