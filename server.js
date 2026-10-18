@@ -433,7 +433,13 @@ async function handler(req,res){try{
    run('UPDATE users SET diamonds=diamonds+? WHERE id=?',diamonds,u.id);
     // Eine erfolgreich geoeffnete Zeittruhe zaehlt als genau eine Level-Uebung.
     // Das UPDATE erfolgt nur nach dem einmaligen CAS-Update der Truhe.
-    if(row.exercise_index===-1)run('UPDATE users SET xp=xp+1 WHERE id=?',u.id);
+    if(row.exercise_index===-1){
+       const boost=q('SELECT multiplier,uses FROM game_boosters WHERE user_id=?',u.id);
+       const settings=JSON.parse(q('SELECT value FROM settings WHERE key=?','events')?.value||'{}');
+       const gained=boost?.uses>0?boost.multiplier:(settings.doubleXp?2:1);
+       run('UPDATE users SET xp=xp+? WHERE id=?',gained,u.id);
+       if(boost?.uses>0)run('UPDATE game_boosters SET uses=uses-1,multiplier=CASE WHEN uses<=1 THEN 1 ELSE multiplier END WHERE user_id=?',u.id);
+     }
     db.exec('COMMIT');
    return json(res,200,{ok:true,rarity,diamonds,user:publicUser(q('SELECT * FROM users WHERE id=?',u.id))});
   }catch(e){db.exec('ROLLBACK');throw e}
