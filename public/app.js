@@ -325,6 +325,9 @@ async function copyFriendLink(){
  prompt('Link auswählen und kopieren:',link);
 }
 function friendLinkPanel(){
+ return `<div class="card"><b>👥 Online-Freunde per QR-Code</b><p class="sub">Dein dauerhafter Freundes-Code, QR-Code und Freundschaftsanfragen.</p><a class="primary" href="/freunde.html" style="display:block;text-align:center;text-decoration:none">QR-Code & Freundschaftsanfragen öffnen →</a></div>`;
+}
+function oldFriendLinkPanelUnused(){
  const configured=safe(String(localStorage.getItem('fitnessplus-friend-base')||''));
  return `<div class="card"><b>🔗 Freunde per Link einladen</b><p class="sub">Schicke deinen persönlichen Link. Beim Öffnen wird dein Profil direkt in die Freundesliste übernommen.</p><button class="primary" data-friendshare="1">Link teilen</button><button class="primary outline" data-friendcopy="1">Link kopieren</button><details class="friendLinkDetails"><summary>Andere App-Adresse verwenden</summary><p class="sub">Wenn du die Admin-App nutzt, trage hier die Adresse der normalen FitnessPlus-App deiner Freunde ein. So öffnet dein Link nicht die Admin-App.</p><input class="input" id="friendBaseInput" type="url" placeholder="https://deine-oeffentliche-app.netlify.app/" value="${configured}"><button class="btn" data-friendbase="1">Adresse speichern</button></details></div>`;
 }
