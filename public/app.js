@@ -1038,19 +1038,19 @@ render=function(){
 // FP_SERVER_EVENTS_BRIDGE_V1
 // Die Admin-App und FitnessPlus verwenden denselben serverseitigen Event-Status.
 // Alle echten Belohnungen werden ausschließlich durch authentifizierte API-Endpunkte vergeben.
-let fpServerEventConfig=null,fpServerEventInfo=null,fpServerEventBusy=false;
+let fpServerEventConfig=null,fpServerEventInfo=null,fpServerEventBusy=false,fpServerWheelConfig=null,fpWheelSpinning=false;
 function fpEventIsOn(c){return !!c&&(Number(c.giftDiamonds)>0||c.doubleXp===true||c.season===true||c.wheel===true)}
 function fpEventBadge(){
   let el=document.getElementById('fpActiveEventBadge');
   const c=fpServerEventConfig;
   if(!fpEventIsOn(c)){el?.remove();return}
-  if(!el){el=document.createElement('div');el.id='fpActiveEventBadge';el.setAttribute('role','status');el.setAttribute('aria-live','polite');document.body.appendChild(el)}
+  if(!el){el=document.createElement('div');el.id='fpActiveEventBadge';el.setAttribute('role','button');el.setAttribute('tabindex','0');el.setAttribute('aria-label','Aktives Event öffnen');document.body.appendChild(el)}
   const items=[];
   if(c.doubleXp)items.push('⚡ Doppel-XP');
   if(Number(c.giftDiamonds)>0)items.push('🎁 Geschenk');
   if(c.season)items.push('🏆 Saison');
   if(c.wheel)items.push('🎡 Glücksrad');
-  el.style.cssText='position:fixed;bottom:calc(env(safe-area-inset-bottom,0px) + '+(document.getElementById('fpActiveBoosterBadge')?'124':'84')+'px);left:50%;transform:translateX(-50%);max-width:calc(100vw - 32px);width:max-content;z-index:9997;background:#123c33;color:#ffffff;border:1px solid #36b69b;border-radius:999px;padding:8px 14px;text-align:center;font:700 12px system-ui;box-shadow:0 4px 15px #0002;pointer-events:none';
+  el.style.cssText='position:fixed;bottom:calc(env(safe-area-inset-bottom,0px) + '+(document.getElementById('fpActiveBoosterBadge')?'124':'84')+'px);left:50%;transform:translateX(-50%);max-width:calc(100vw - 32px);width:max-content;z-index:9997;background:#123c33;color:#ffffff;border:1px solid #36b69b;border-radius:999px;padding:8px 14px;text-align:center;font:700 12px system-ui;box-shadow:0 4px 15px #0002;cursor:pointer;pointer-events:auto;touch-action:manipulation';
   el.textContent='🎉 EVENT AKTIV · '+items.join(' · ');
 }
 activeEvent=function(){
@@ -1067,6 +1067,7 @@ refreshEvents=async function(){
   const payload=await response.json();
   const cfg=payload.events||{};
   fpServerEventConfig=cfg;
+  fpServerWheelConfig=payload.wheelConfig||null;
   liveEvents=activeEvent()||{id:'',active:false};
   fpServerEventInfo=null;
   if(fpEventIsOn(cfg)){
@@ -1078,7 +1079,7 @@ refreshEvents=async function(){
   fpEventBadge();
   if(s.view==='events')render();
  }catch(err){
-  fpServerEventConfig=null;fpServerEventInfo=null;liveEvents={id:'',active:false};
+  fpServerEventConfig=null;fpServerEventInfo=null;fpServerWheelConfig=null;liveEvents={id:'',active:false};
   fpEventBadge();if(s.view==='events')render();
  }finally{fpServerEventBusy=false}
 };
@@ -1094,18 +1095,67 @@ eventView=function(){
   if(info?.tiers)h+=info.tiers.map(t=>'<div class="item"><div class="grow"><b>'+Number(t.at)+' Übungen</b><div class="sub">'+Number(t.diamonds)+' 💎</div></div><button class="btn" data-fp-serverevent="season" data-event-tier="'+Number(t.at)+'" '+(t.claimed||info.progress<t.at?'disabled':'')+'>'+(t.claimed?'✓ Abgeholt':info.progress<t.at?'Gesperrt':'Abholen')+'</button></div>').join('');
   h+='</div>';
  }
- if(c.wheel)h+='<div class="card"><b>🎡 Glücksrad</b><p class="sub">'+(info?'Heute noch '+Number(info.wheelSpinsRemaining||0)+' von '+Number(info.wheelMaxSpins||0)+' Drehungen übrig.':'Melde dich an, um zu drehen.')+'</p><button class="primary" data-fp-serverevent="wheel" '+(info&&info.wheelSpinsRemaining===0?'disabled':'')+'>Jetzt drehen</button></div>';
+ if(c.wheel)h+=fpWheelDisplay(info);
  if(!info)h+='<p class="sub">Für Belohnungen musst du mit deinem Online-Konto angemeldet sein.</p>';
  return h;
 };
+
+function fpWheelPrizes(){
+ const values=fpServerWheelConfig?.prizes;
+ const selected=Array.isArray(values)&&values.length>=2&&values.length<=8?values:[{diamonds:5},{diamonds:10},{diamonds:15},{diamonds:20},{diamonds:30}];
+ return selected.filter(p=>Number.isSafeInteger(Number(p.diamonds))&&Number(p.diamonds)>0).map(p=>Number(p.diamonds));
+}
+function fpWheelDisplay(info){
+ const prizes=fpWheelPrizes(),n=prizes.length||5;
+ const colors=['#10bfa4','#ffce64','#4a9de1','#f18b80','#9d8bdf','#a8d96c','#e49fb6','#4ac4c4'];
+ const stops=prizes.map((v,i)=>colors[i%colors.length]+' '+(360*i/n)+'deg '+(360*(i+1)/n)+'deg').join(',');
+ const labels=prizes.map((value,i)=>{
+   const rad=((i+.5)*2*Math.PI/n-Math.PI/2);
+   const x=50+33*Math.cos(rad),y=50+33*Math.sin(rad);
+   return '<span style="position:absolute;left:'+x.toFixed(2)+'%;top:'+y.toFixed(2)+'%;transform:translate(-50%,-50%);font-size:'+(n>6?'10':'12')+'px;font-weight:900;color:#142d2c;text-shadow:0 1px 2px #fff9;white-space:nowrap">'+value+' 💎</span>'
+ }).join('');
+ return '<div class="card" id="fp-wheel-card" style="text-align:center"><b style="font-size:20px">🎡 Glücksrad</b><p class="sub">'+(info?'Heute noch '+Number(info.wheelSpinsRemaining||0)+' von '+Number(info.wheelMaxSpins||0)+' Drehungen übrig.':'Bitte melde dich mit deinem Online-Konto an.')+'</p>'+
+ '<div style="position:relative;width:min(290px,86vw);aspect-ratio:1;margin:18px auto 20px">'+
+ '<div style="position:absolute;z-index:2;top:-10px;left:50%;transform:translateX(-50%);width:0;height:0;border-left:14px solid transparent;border-right:14px solid transparent;border-top:26px solid #17352f;filter:drop-shadow(0 2px 2px #0004)"></div>'+
+ '<div id="fp-wheel-disc" style="position:absolute;inset:0;border-radius:50%;border:7px solid #f7f9f4;box-shadow:0 0 0 3px #138875,0 8px 22px #0002;overflow:hidden;background:conic-gradient('+stops+');transform:rotate(0deg);transition:transform 5s cubic-bezier(.11,.81,.16,1)">'+labels+
+ '<div style="position:absolute;inset:42%;border-radius:50%;background:#fff;border:4px solid #188a78;box-shadow:0 1px 6px #0003"></div></div></div>'+
+ '<p class="sub" id="fp-wheel-result" role="status" aria-live="polite">Das Ergebnis wird vom Server bestimmt.</p>'+
+ '<button class="primary" data-fp-serverevent="wheel" '+(!info||info.wheelSpinsRemaining===0||fpWheelSpinning?'disabled':'')+'>'+(fpWheelSpinning?'Rad dreht sich …':'🎡 Jetzt drehen')+'</button></div>';
+}
+function fpWheelAnimate(amount){
+ const disc=document.getElementById('fp-wheel-disc'),status=document.getElementById('fp-wheel-result');
+ const prizes=fpWheelPrizes(),n=prizes.length;
+ if(!disc||!n)return Promise.resolve();
+ const idx=Math.max(0,prizes.indexOf(Number(amount)));
+ // Der Zeiger steht oben. Die Mitte des Gewinnfelds wird unter den Zeiger gedreht.
+ const degrees=360-(idx+.5)*360/n;
+ const spins=360*6+degrees;
+ if(status)status.textContent='🎡 Das Glücksrad dreht sich …';
+ return new Promise(resolve=>{
+  requestAnimationFrame(()=>requestAnimationFrame(()=>{disc.style.transform='rotate('+spins+'deg)'}));
+  setTimeout(()=>{if(status)status.textContent='🎉 Gewonnen: '+Number(amount)+' 💎';resolve()},5100);
+ });
+}
+document.addEventListener('click',e=>{
+ const badge=e.target.closest('#fpActiveEventBadge');
+ if(!badge)return;
+ e.preventDefault();e.stopImmediatePropagation();
+ s.tab='home';s.view='events';render();void refreshEvents();
+},true);
+document.addEventListener('keydown',e=>{
+ if(e.target?.id!=='fpActiveEventBadge'||(e.key!=='Enter'&&e.key!==' '))return;
+ e.preventDefault();s.tab='home';s.view='events';render();void refreshEvents();
+},true);
+
 document.addEventListener('click',async e=>{
  const button=e.target.closest('button[data-fp-serverevent]');
  if(!button)return;
  e.preventDefault();e.stopImmediatePropagation();
- if(button.disabled||button.dataset.busy)return;
+ if(button.disabled||button.dataset.busy||fpWheelSpinning)return;
  const mode=button.dataset.fpServerevent;
  if(!fpEventIsOn(fpServerEventConfig))return;
  button.dataset.busy='1';button.disabled=true;
+ if(mode==='wheel')fpWheelSpinning=true;
  const route=mode==='gift'?'/api/game/event/gift':mode==='wheel'?'/api/game/wheel':mode==='season'?'/api/game/season/claim':'';
  if(!route)return;
  try{
@@ -1115,9 +1165,11 @@ document.addEventListener('click',async e=>{
   if(payload.user&&Number.isFinite(Number(payload.user.diamonds)))s.diamonds=Number(payload.user.diamonds);
   if(payload.user&&Number.isFinite(Number(payload.user.xp)))s.levelExercises=Number(payload.user.xp);
   save();
+  if(mode==='wheel')await fpWheelAnimate(Number(payload.diamonds||0));
   toast(mode==='wheel'?'🎡 '+Number(payload.diamonds||0)+' Diamanten gewonnen!':mode==='gift'?'🎁 '+Number(payload.diamonds||0)+' Diamanten abgeholt!':'🏆 Saisonbelohnung abgeholt!');
+  fpWheelSpinning=false;
   await refreshEvents();render();
- }catch(err){toast(err.message||'Event-Aktion fehlgeschlagen');button.disabled=false}
+ }catch(err){fpWheelSpinning=false;toast(err.message||'Event-Aktion fehlgeschlagen');button.disabled=false}
  finally{delete button.dataset.busy}
 },true);
 const fpEventPreviousRender=render;
