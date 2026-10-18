@@ -21,6 +21,12 @@ CREATE TABLE IF NOT EXISTS game_chests (id TEXT PRIMARY KEY, user_id TEXT NOT NU
 CREATE TABLE IF NOT EXISTS game_boosters (user_id TEXT PRIMARY KEY REFERENCES users(id), multiplier INTEGER NOT NULL DEFAULT 1, uses INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS game_purchases (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id), item TEXT NOT NULL, price INTEGER NOT NULL, created_at INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS game_daily (user_id TEXT NOT NULL REFERENCES users(id), award_day TEXT NOT NULL, PRIMARY KEY(user_id, award_day));`);
+// Zeittruhen: feste serverseitige Dauer pro Trainingslauf und nur eine Truhe je Lauf.
+// Alte Daten bleiben unveraendert; vorhandene Laeufe erhalten keinen rueckwirkenden Anspruch.
+if(!db.prepare('PRAGMA table_info(game_runs)').all().some(c=>c.name==='duration_ms')){
+ db.exec('ALTER TABLE game_runs ADD COLUMN duration_ms INTEGER');
+}
+db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_game_time_chest_once ON game_chests(run_id) WHERE exercise_index=-1');
 db.exec(`CREATE TABLE IF NOT EXISTS game_wheel (user_id TEXT NOT NULL REFERENCES users(id), event_id TEXT NOT NULL, award_day TEXT NOT NULL, diamonds INTEGER NOT NULL, PRIMARY KEY(user_id,event_id,award_day));
 CREATE TABLE IF NOT EXISTS game_season_claims (user_id TEXT NOT NULL REFERENCES users(id), season_id TEXT NOT NULL, tier INTEGER NOT NULL, diamonds INTEGER NOT NULL, PRIMARY KEY(user_id,season_id,tier));
 CREATE TABLE IF NOT EXISTS game_event_claims (user_id TEXT NOT NULL REFERENCES users(id), event_id TEXT NOT NULL, diamonds INTEGER NOT NULL, PRIMARY KEY(user_id,event_id));
@@ -372,8 +378,29 @@ async function handler(req,res){try{
   const b=q('SELECT multiplier,uses FROM game_boosters WHERE user_id=?',u.id);
   return json(res,200,{user:publicUser(q('SELECT * FROM users WHERE id=?',u.id)),booster:b||{multiplier:1,uses:0},chests:all('SELECT id,created_at FROM game_chests WHERE user_id=? AND opened_at IS NULL ORDER BY created_at',u.id),history:all('SELECT rarity,diamonds,opened_at FROM game_chests WHERE user_id=? AND opened_at IS NOT NULL ORDER BY opened_at DESC LIMIT 50',u.id)});
  }
- if(req.method==='POST'&&url.pathname==='/api/game/start'){
-  const id=uid();run('INSERT INTO game_runs VALUES(?,?,?)',id,u.id,Date.now());return json(res,200,{runId:id});
+  if(req.method==='POST'&&url.pathname==='/api/game/start'){
+   const minutes=Number(data.durationMinutes);
+   // The workout duration cannot be shortened after starting on the server.
+   if(!Number.isInteger(minutes)||minutes<1||minutes>240)return error(res,400,'Trainingsdauer muss zwischen 1 und 240 Minuten liegen');
+   const id=uid();run('INSERT INTO game_runs(id,user_id,started_at,duration_ms) VALUES(?,?,?,?)',id,u.id,Date.now(),minutes*60000);
+   return json(res,200,{runId:id,requiredMs:minutes*60000});
+ }
+ if(req.method==='POST'&&url.pathname==='/api/game/time-chest'){
+   const runId=String(data.runId||'');
+   const t=q('SELECT id,started_at,duration_ms FROM game_runs WHERE id=? AND user_id=?',runId,u.id),now=Date.now();
+   if(!t||!t.duration_ms)return error(res,404,'Online-Training nicht gefunden');
+   if(now-t.started_at<t.duration_ms)return error(res,409,'Die Trainingszeit ist noch nicht erreicht');
+   if(now-t.started_at>4*3600000)return error(res,410,'Training ist abgelaufen');
+   db.exec('BEGIN IMMEDIATE');try{
+     const existing=q('SELECT id FROM game_chests WHERE run_id=? AND exercise_index=-1',runId);
+     if(existing){db.exec('COMMIT');return json(res,200,{ok:true,chestId:existing.id,alreadyAwarded:true})}
+     const recent=q(`SELECT COUNT(*) AS n FROM game_chests
+       WHERE user_id=? AND exercise_index=-1 AND created_at>?`,u.id,now-86400000).n;
+     if(recent>=12){db.exec('ROLLBACK');return error(res,429,'Heute maximal 12 Zeittruhen möglich')}
+     const chestId=uid();
+     run('INSERT INTO game_chests(id,user_id,run_id,exercise_index,created_at) VALUES(?,?,?,?,?)',chestId,u.id,runId,-1,now);
+     db.exec('COMMIT');return json(res,200,{ok:true,chestId,alreadyAwarded:false});
+   }catch(e){db.exec('ROLLBACK');throw e}
  }
  if(req.method==='POST'&&url.pathname==='/api/game/exercise'){
   const runId=String(data.runId||''),ix=Number(data.exerciseIndex);
