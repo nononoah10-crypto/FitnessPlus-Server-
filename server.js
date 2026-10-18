@@ -575,6 +575,39 @@ async function handler(req,res){try{
   run('INSERT INTO friend_messages(id,sender_id,recipient_id,message,created_at) VALUES(?,?,?,?,?)',id,u.id,friendId,message,now);
   return json(res,200,{ok:true,message:{id,senderId:u.id,text:message,createdAt:now,mine:true}});
  }
+ if(req.method==='GET'&&url.pathname==='/api/friends/profile'){
+  const code=String(url.searchParams.get('code')||'').trim().toUpperCase();
+  const target=q('SELECT id,username,friend_code FROM users WHERE friend_code=?',code);
+  if(!target)return error(res,404,'Spieler nicht gefunden');
+  const existing=target.id===u.id?true:chatFriend(u.id,target.id);
+  const sent=!!q('SELECT 1 FROM friend_requests WHERE sender_id=? AND recipient_id=?',u.id,target.id);
+  return json(res,200,{name:target.username,code:target.friend_code,self:target.id===u.id,friend:existing,pending:sent});
+ }
+ if(req.method==='GET'&&url.pathname==='/api/friends/requests'){
+  const received=all('SELECT r.id,u.username AS name,r.created_at AS createdAt FROM friend_requests r JOIN users u ON u.id=r.sender_id WHERE r.recipient_id=? ORDER BY r.created_at DESC LIMIT 100',u.id);
+  return json(res,200,{received});
+ }
+ if(req.method==='POST'&&url.pathname==='/api/friends/request'){
+  const code=String(data.code||'').trim().toUpperCase();
+  const target=q('SELECT id FROM users WHERE friend_code=?',code);
+  if(!target)return error(res,404,'Freundes-Code nicht gefunden');
+  if(target.id===u.id)return error(res,400,'Du kannst dich nicht selbst hinzufügen');
+  if(chatFriend(u.id,target.id))return json(res,200,{ok:true,alreadyFriends:true});
+  if(q('SELECT 1 FROM friend_requests WHERE sender_id=? AND recipient_id=?',target.id,u.id))return error(res,409,'Diese Person hat dir bereits eine Anfrage geschickt. Bitte nimm sie an.');
+  run('INSERT OR IGNORE INTO friend_requests(id,sender_id,recipient_id,created_at) VALUES(?,?,?,?)',uid(),u.id,target.id,Date.now());
+  return json(res,200,{ok:true});
+ }
+ if(req.method==='POST'&&url.pathname==='/api/friends/respond'){
+  const id=String(data.id||'');const decision=String(data.decision||'');
+  if(!['accept','decline'].includes(decision))return error(res,400,'Ungültige Entscheidung');
+  const request=q('SELECT * FROM friend_requests WHERE id=? AND recipient_id=?',id,u.id);
+  if(!request)return error(res,404,'Anfrage nicht gefunden');
+  db.exec('BEGIN IMMEDIATE');try{
+   if(decision==='accept'){const [a,b]=[u.id,request.sender_id].sort();run('INSERT OR IGNORE INTO friendship(a,b,created_at) VALUES(?,?,?)',a,b,Date.now())}
+   run('DELETE FROM friend_requests WHERE id=?',id);
+   db.exec('COMMIT');return json(res,200,{ok:true});
+  }catch(err){db.exec('ROLLBACK');throw err}
+ }
  if(req.method==='GET'&&url.pathname==='/api/friends'){
   // Nur authentifizierte, bestaetigte Online-Freundschaften sind sichtbar.
   // Rekorde werden aus tatsaechlich auf dem Server abgeholten Tagesbelohnungen
