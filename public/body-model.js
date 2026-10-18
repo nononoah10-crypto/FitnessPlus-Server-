@@ -46,7 +46,7 @@ function display(msg){
 }
 function fetchModel(){
  if(pending||loaded)return;pending=true;display('Anatomiemodell wird geladen …');
- new GLTFLoader().setMeshoptDecoder(MeshoptDecoder).load('/models/ecorche.meshopt.glb',gltf=>{
+ new GLTFLoader().setMeshoptDecoder(MeshoptDecoder).load('https://cdn.jsdelivr.net/gh/Charleeh/ecorche@main/model/ecorche.meshopt.glb',gltf=>{
   figure=gltf.scene;
   figure.rotation.y=angle;
   const bounds=new THREE.Box3().setFromObject(figure);
