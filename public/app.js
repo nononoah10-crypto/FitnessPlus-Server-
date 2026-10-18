@@ -882,4 +882,73 @@ document.addEventListener('click',async e=>{const b=e.target.closest('button');i
  if(d.fpofSend!==undefined){const text=String($('#fpofMessage')?.value||'').trim();if(!text)return;await fpFriendsApi('chat/send',{friendId:fpFriendsOnline.chat.id,text});await fpFriendsReloadChat();return}
  }catch(err){if(err.name!=='AbortError')toast(err.message||'Verbindung fehlgeschlagen')}},true);
 
+
+// FitnessPlus: Nur Online-Diamanten direkt an bestaetigte Freunde verschenken.
+// Kein Code, kein Offline-Geschenk, keine Booster- oder Level-Einloesefunktion im Menue.
+const fpGiftOnline={friends:[],loading:false,loaded:false,error:'',busy:false};
+const fpGiftApi=async (endpoint,data)=>{
+ const response=await fetch('/api/'+endpoint,{method:data?'POST':'GET',credentials:'same-origin',cache:'no-store',headers:data?{'Content-Type':'application/json'}:{},body:data?JSON.stringify(data):undefined});
+ const result=await response.json();
+ if(!response.ok)throw Error(result.error||'Online-Verbindung fehlgeschlagen');
+ return result;
+};
+async function fpGiftLoad(){
+ if(fpGiftOnline.loading)return;
+ fpGiftOnline.loading=true;fpGiftOnline.error='';
+ try{const [m,f]=await Promise.all([fpGiftApi('me'),fpGiftApi('friends')]);
+  fpGiftOnline.friends=f.friends||[];
+  s.diamonds=Number(m.user.diamonds)||0;
+  fpGiftOnline.loaded=true;
+ }catch(e){fpGiftOnline.error=e.message;fpGiftOnline.loaded=false;fpGiftOnline.friends=[]}
+ finally{fpGiftOnline.loading=false;if(s.view==='gifts')render()}
+}
+// Bestehende Versions-Wrapper werden bewusst durch die finale Ansicht ersetzt.
+giftScreen=function(){
+ const f=fpGiftOnline;
+ const options=f.friends.map(x=>`<option value="${safe(x.id)}">${safe(x.name)} · Level ${Number(x.level)||1}</option>`).join('');
+ return hdr('DIAMANTEN VERSCHENKEN','Freunden eine Freude machen.')+
+ `<button class="btn" data-giftback="1">← Zum Diamanten Store</button>
+ <section class="boosterHero"><div class="shopKicker">DEINE ONLINE-DIAMANTEN</div><div class="boosterBalance">💎 ${Math.max(0,Math.floor(Number(s.diamonds)||0))}</div><div class="boosterStatus">🎁 Diamanten gehen direkt auf das Online-Konto deines Freundes.</div></section>
+ <div class="card"><b>💎 Diamanten senden</b><p class="sub">Wähle einen Freund aus deiner Online-Freundesliste und gib die Anzahl der Diamanten ein. Der Betrag wird dir abgezogen und deinem Freund sofort gutgeschrieben.</p>
+ ${f.error?`<p class="sub" role="alert">${safe(f.error)}</p>`:''}
+ <label class="field" for="fpOnlineGiftFriend">Online-Freund auswählen</label>
+ <select class="input" id="fpOnlineGiftFriend" ${f.loading||!f.friends.length?'disabled':''}><option value="">${f.loading?'Freunde werden geladen …':f.friends.length?'Freund auswählen':'Keine Online-Freunde vorhanden'}</option>${options}</select>
+ <label class="field" for="fpOnlineGiftAmount">Diamantenanzahl</label>
+ <input class="input" id="fpOnlineGiftAmount" type="number" inputmode="numeric" min="1" max="100000" step="1" placeholder="z. B. 50">
+ <button class="primary" data-online-gift-send="1" ${f.loading||f.busy||!f.friends.length?'disabled':''}>💎 ${f.busy?'Wird übertragen …':'Diamanten verschenken'}</button>
+ <button class="btn" data-online-gift-refresh="1" style="margin-top:12px">Freundesliste aktualisieren</button>
+ ${f.loaded&&!f.friends.length?'<p class="sub">Füge zuerst unter „Freunde“ jemanden mit seinem Online-Freundes-Code hinzu.</p>':''}</div>`;
+};
+const fpGiftOldStoreScreen=storeScreen;
+storeScreen=function(){return fpGiftOldStoreScreen().replace('Booster verschenken','Diamanten verschenken')};
+// Die bereits vorhandenen Codes funktionieren nicht mehr als sichtbare Geschenkfunktionen.
+window.addEventListener('click',async e=>{
+ const b=e.target.closest('button');if(!b)return;
+ if(b.dataset.giftmenu!==undefined){
+  e.preventDefault();e.stopImmediatePropagation();s.view='gifts';fpGiftOnline.loaded=false;render();void fpGiftLoad();return;
+ }
+ if(b.dataset.onlineGiftRefresh!==undefined){e.preventDefault();e.stopImmediatePropagation();void fpGiftLoad();return}
+ if(b.dataset.onlineGiftSend===undefined)return;
+ e.preventDefault();e.stopImmediatePropagation();
+ if(fpGiftOnline.busy)return;
+ const friendId=String($('#fpOnlineGiftFriend')?.value||'');
+ const raw=String($('#fpOnlineGiftAmount')?.value||'').trim();
+ const amount=Number(raw);
+ const friend=fpGiftOnline.friends.find(x=>x.id===friendId);
+ if(!friend){toast('Bitte einen Online-Freund auswählen.');return}
+ if(!raw||!Number.isSafeInteger(amount)||amount<1||amount>100000){toast('Bitte 1 bis 100.000 Diamanten eingeben.');return}
+ if(amount>Number(s.diamonds)){toast('Nicht genug Diamanten.');return}
+ if(!confirm(`${amount.toLocaleString('de-DE')} 💎 wirklich an ${friend.name} senden?`))return;
+ fpGiftOnline.busy=true;
+ try{
+  const answer=await fpGiftApi('gifts/send',{kind:'diamonds',friendId,amount});
+  s.diamonds=answer.user.diamonds;
+  render();toast(`${amount.toLocaleString('de-DE')} 💎 an ${friend.name} gesendet!`);
+ }catch(err){toast(err.message||'Übertragung fehlgeschlagen')}
+ finally{fpGiftOnline.busy=false;render()}
+},true);
+// Beim erneuten Aufrufen der Geschenkseite Online-Freunde laden.
+const fpGiftPreviousRender=render;
+render=function(){fpGiftPreviousRender();if(s.view==='gifts'&&!fpGiftOnline.loaded&&!fpGiftOnline.loading&&!fpGiftOnline.error)void fpGiftLoad()};
+
 })();
