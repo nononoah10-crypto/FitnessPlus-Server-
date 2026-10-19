@@ -1177,4 +1177,95 @@ render=function(){fpEventPreviousRender();fpEventBadge()};
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)void refreshEvents()});
 window.addEventListener('pageshow',()=>void refreshEvents());
 
+
+// FP_PROGRESS_GUIDES_V1: Auswertung echter Verlaufseinträge und Übungsanleitungen.
+// Unvollständige Sätze werden weder als Gewichtserfolg noch als Wiederholungsrekord gezählt.
+let fpProgressDays=30,fpGuideOpen='';
+const fpGuides={
+ 'Kniebeugen':{steps:['Stelle die Füße ungefähr schulterbreit auf und richte den Oberkörper auf.','Schiebe Hüfte und Knie kontrolliert nach unten, soweit es angenehm möglich ist.','Drücke dich über den ganzen Fuß wieder nach oben.'],mistakes:['Knie unkontrolliert nach innen fallen lassen','Fersen abheben oder den Rücken stark rund machen']},
+ 'Ausfallschritte':{steps:['Stelle dich stabil hin und mache einen ausreichend großen Schritt.','Senke den Körper kontrolliert; beide Knie beugen sich.','Drücke dich nach oben und wechsle die Seite.'],mistakes:['Zu kurzer Schritt und wackeliger Stand','Oberkörper unkontrolliert nach vorne kippen']},
+ 'Liegestütze':{steps:['Setze die Hände etwa schulterbreit auf und halte den Körper in einer Linie.','Senke Brust und Oberkörper kontrolliert ab.','Drücke dich hoch, ohne die Hüfte durchhängen zu lassen.'],mistakes:['Hohlkreuz und abgesenkte Hüfte','Ellbogen sehr weit nach außen spreizen']},
+ 'Bankdrücken':{steps:['Lege dich stabil auf die Bank und stelle die Füße auf.','Senke die Hantel kontrolliert Richtung Brust.','Drücke die Hantel wieder nach oben; nutze eine Sicherung bei schweren Gewichten.'],mistakes:['Gewicht unkontrolliert abfedern','Ohne Sicherung an die Belastungsgrenze gehen']},
+ 'Rudern':{steps:['Halte den Rumpf stabil und den Rücken möglichst neutral.','Ziehe die Ellbogen kontrolliert nach hinten.','Lasse das Gewicht langsam zurück.'],mistakes:['Mit Schwung und rundem Rücken ziehen','Schultern Richtung Ohren hochziehen']},
+ 'Klimmzüge':{steps:['Greife die Stange sicher und spanne den Rumpf an.','Ziehe die Ellbogen kontrolliert nach unten und bewege dich aufwärts.','Senke dich ohne Schwung wieder ab; nutze bei Bedarf Unterstützung.'],mistakes:['Körper stark schwingen lassen','Schultern hochziehen oder fallen lassen']},
+ 'Schulterdrücken':{steps:['Halte Gewichte kontrolliert etwa auf Schulterhöhe.','Drücke sie nach oben, ohne den Rücken zu überstrecken.','Senke die Gewichte langsam in die Ausgangsposition.'],mistakes:['Starkes Hohlkreuz','Gewichte unkontrolliert ablassen']},
+ 'Seitheben':{steps:['Stehe stabil und halte leichte Gewichte seitlich.','Hebe die leicht gebeugten Arme bis ungefähr Schulterhöhe.','Senke sie langsam wieder ab.'],mistakes:['Schwung aus dem Oberkörper holen','Schultern hochziehen oder zu schwer trainieren']},
+ 'Bizepscurls':{steps:['Stehe stabil und halte die Oberarme neben dem Körper.','Beuge die Ellbogen kontrolliert.','Senke das Gewicht langsam wieder ab.'],mistakes:['Oberkörper nach hinten schwingen','Oberarme weit nach vorne bewegen']},
+ 'Trizepsdrücken':{steps:['Stehe stabil am Kabelzug und halte die Ellbogen nah am Körper.','Strecke die Arme langsam nach unten.','Kehre kontrolliert zurück, ohne die Schultern mitzubewegen.'],mistakes:['Mit Oberkörpergewicht nachdrücken','Ellbogen deutlich vor- und zurückwandern lassen']},
+ 'Plank':{steps:['Stütze dich auf Unterarmen und Zehenspitzen ab.','Spanne Bauch und Gesäß an; halte Kopf, Rumpf und Beine möglichst in einer Linie.','Atme gleichmäßig und löse die Position, bevor du die Haltung verlierst.'],mistakes:['Hüfte durchhängen oder zu hoch heben','Luft anhalten']},
+ 'Crunches':{steps:['Lege dich mit angewinkelten Beinen auf den Rücken.','Hebe Schultern und oberen Rücken durch Anspannen des Bauchs leicht an.','Senke dich langsam ab und halte den Nacken entspannt.'],mistakes:['Mit den Händen am Kopf ziehen','Mit Schwung hochreißen']},
+ 'Radfahren':{steps:['Stelle Sattelhöhe und Lenker möglichst angenehm ein.','Beginne in lockerem Tempo und steigere die Belastung schrittweise.','Achte auf gleichmäßiges Treten und regelmäßige Pausen.'],mistakes:['Zu schwerer Gang direkt am Anfang','Schmerzen trotz ungeeigneter Sitzposition ignorieren']},
+ 'Laufen':{steps:['Starte mit einigen Minuten lockerem Gehen oder Traben.','Laufe in einem Tempo, das du kontrolliert halten kannst.','Reduziere das Tempo zum Abschluss und steigere den Umfang allmählich.'],mistakes:['Zu schnell starten','Trainingsumfang zu sprunghaft erhöhen']},
+ 'Dehnen':{steps:['Bewege dich langsam in eine angenehme Dehnposition.','Halte die Position ruhig und atme entspannt weiter.','Löse die Position langsam und wechsle die Seite.'],mistakes:['Ruckartig wippen','Bis in den Schmerz dehnen']}
+};
+function fpGuideBlock(name){
+ const g=fpGuides[name];
+ if(!g)return '';
+ const entry=LIB.find(x=>x[0]===name);
+ return '<div style="margin-top:10px;padding:14px;border-radius:14px;background:var(--surface2,#eef8f4);text-align:left">'+
+ '<b>Schritt für Schritt</b><ol style="padding-left:20px;line-height:1.6;margin:8px 0 12px">'+g.steps.map(t=>'<li>'+safe(t)+'</li>').join('')+'</ol>'+
+ '<b>Häufige Fehler</b><ul style="padding-left:20px;line-height:1.6;margin:8px 0 12px">'+g.mistakes.map(t=>'<li>'+safe(t)+'</li>').join('')+'</ul>'+
+ '<p class="sub">Muskelgruppe: '+safe(entry?.[1]||'')+'. Trainiere schmerzfrei, kontrolliert und mit passendem Widerstand. Bei Beschwerden Training abbrechen und gegebenenfalls fachlichen Rat einholen.</p></div>';
+}
+const fpOldLibraryView=libraryView;
+libraryView=function(){
+ let base=fpOldLibraryView();
+ // Jede bekannte Übung erhält ihre eigene aufklappbare Anleitung.
+ for(const x of LIB){
+  const name=x[0],needle='<button class="btn" data-useexercise="'+safe(name)+'">Als eigenes Training anlegen</button>';
+  if(!base.includes(needle))continue;
+  const expanded=fpGuideOpen===name;
+  const button='<button type="button" class="btn" data-fp-guide="'+safe(name)+'" aria-expanded="'+expanded+'" style="margin:8px 8px 0 0">'+(expanded?'Anleitung schließen ↑':'📚 Anleitung →')+'</button>';
+  base=base.replace(needle,button+needle+(expanded?fpGuideBlock(name):''));
+ }
+ return base;
+};
+const fpOldProgress=progress;
+progress=function(){
+ const base=fpOldProgress();
+ if(s.view)return base;
+ const today=new Date();today.setHours(12,0,0,0);
+ const end=day();
+ const first=new Date(today);first.setDate(first.getDate()-fpProgressDays+1);
+ const previousFirst=new Date(first);previousFirst.setDate(previousFirst.getDate()-fpProgressDays);
+ const startKey=dkey(first),previousStartKey=dkey(previousFirst);
+ const items=s.history.filter(h=>typeof h.day==='string'&&h.day>=startKey&&h.day<=end);
+ const older=s.history.filter(h=>typeof h.day==='string'&&h.day>=previousStartKey&&h.day<startKey);
+ const sum=(records,key)=>records.reduce((n,h)=>n+Math.max(0,Number(h[key])||0),0);
+ const minutes=sum(items,'min'),oldMinutes=sum(older,'min');
+ const delta=minutes-oldMinutes,days=fpProgressDays;
+ const buckets=days===7?7:days===30?10:12;
+ const chart=Array.from({length:buckets},(_,i)=>({minutes:0,workouts:0,label:''}));
+ for(let i=0;i<days;i++){
+  const d=new Date(first);d.setDate(first.getDate()+i);
+  const idx=Math.min(buckets-1,Math.floor(i*buckets/days));
+  if(i===0||Math.floor((i-1)*buckets/days)!==idx)chart[idx].label=d.toLocaleDateString('de-DE',{day:'numeric',month:'numeric'});
+ }
+ for(const h of items){
+  const diff=Math.round((new Date(h.day+'T12:00:00')-first)/86400000);
+  const idx=Math.min(buckets-1,Math.max(0,Math.floor(diff*buckets/days)));
+  chart[idx].minutes+=Math.max(0,Number(h.min)||0);chart[idx].workouts++;
+ }
+ const max=Math.max(1,...chart.map(v=>v.minutes));
+ const lines=chart.map((v,i)=>'<div style="flex:1;min-width:0;text-align:center"><div style="height:118px;display:flex;align-items:end;justify-content:center"><div title="'+v.minutes+' Trainingsminuten" style="width:75%;max-width:24px;height:'+(v.minutes?Math.max(4,108*v.minutes/max):2)+'px;border-radius:6px 6px 0 0;background:'+(v.minutes?'#0fae93':'#d9e6e1')+'"></div></div><span style="font-size:9px;color:var(--muted,#678077);white-space:nowrap">'+safe(v.label)+'</span></div>').join('');
+ const summary='<section class="card" id="fp-progress-overview" style="margin:14px 0 18px"><b style="font-size:19px">📈 Dein Trainingsfortschritt</b><p class="sub" style="margin:7px 0 12px">Aus deinen gespeicherten Trainingseinträgen</p><div class="chips">'+[7,30,90].map(n=>'<button type="button" class="chip '+(n===days?'active':'')+'" data-fp-progress-days="'+n+'">'+n+' Tage</button>').join('')+'</div>'+
+ '<div class="metrics" style="margin:16px 0"><div class="metric"><div class="sub">Trainings</div><div class="value">'+items.length+'</div></div><div class="metric"><div class="sub">Minuten</div><div class="value">'+minutes+'</div></div><div class="metric"><div class="sub">Zum vorherigen Zeitraum</div><div class="value" style="font-size:17px">'+(delta>0?'+':'')+delta+' Min</div></div></div>'+
+ '<div style="display:flex;align-items:end;gap:5px;min-height:140px">'+lines+'</div>'+
+ '<p class="sub" style="font-size:11px;margin-top:12px">Nachträglich abgehakte Trainings sind in dieser Zeitübersicht enthalten. Wiederholungen und Gewichte werden nur ausgewertet, wenn abgeschlossene Sätze gespeichert wurden.</p></section>';
+ return base.replace(/(<div class="card")/,summary+'$1');
+};
+document.addEventListener('click',e=>{
+ const btn=e.target.closest('button[data-fp-progress-days],button[data-fp-guide]');
+ if(!btn)return;
+ e.preventDefault();e.stopImmediatePropagation();
+ if(btn.dataset.fpProgressDays){
+  fpProgressDays=Number(btn.dataset.fpProgressDays)||30;
+  render();return;
+ }
+ if(btn.dataset.fpGuide!==undefined){
+  fpGuideOpen=fpGuideOpen===btn.dataset.fpGuide?'':btn.dataset.fpGuide;
+  render();
+ }
+},true);
+
 })();
