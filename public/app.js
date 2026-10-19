@@ -1222,6 +1222,24 @@ libraryView=function(){
  }
  return base;
 };
+let fpMuscleDays=30;
+function fpMuscleStats(){
+ const names=['Brust','Rücken','Beine','Arme','Schultern','Bauch'];
+ const now=new Date();now.setHours(12,0,0,0);
+ const first=new Date(now);first.setDate(now.getDate()-fpMuscleDays+1);
+ const start=dkey(first),end=dkey(now);
+ const counts=Object.fromEntries(names.map(n=>[n,0]));
+ let unknown=0;
+ for(const h of s.history){
+  if(typeof h.day!=='string'||h.day<start||h.day>end)continue;
+  const w=typeof find==='function'?find(h.workoutId):null;
+  const g=String(h.muscleGroup||(w&&w.muscleGroup)||'').trim();
+  if(Object.prototype.hasOwnProperty.call(counts,g))counts[g]++;else unknown++;
+ }
+ const max=Math.max(1,...Object.values(counts));
+ return '<section class="card" id="fp-muscle-stats" style="margin:14px 0 18px"><b style="font-size:19px">📊 Muskelgruppen-Statistik</b><p class="sub" style="margin:7px 0 12px">Deine Trainings nach Muskelgruppen</p><div class="chips">'+[7,30,90].map(n=>'<button type="button" class="chip '+(n===fpMuscleDays?'active':'')+'" data-fp-muscle-days="'+n+'">'+n+' Tage</button>').join('')+'</div><div style="display:grid;gap:14px;margin-top:18px">'+names.map(n=>'<div><div style="display:flex;justify-content:space-between;gap:8px;font-size:14px;margin-bottom:6px"><b>'+n+'</b><span class="sub">'+counts[n]+' Trainings</span></div><div style="height:12px;border-radius:9px;background:#e4efea;overflow:hidden"><div style="width:'+(100*counts[n]/max)+'%;height:100%;border-radius:9px;background:#0fae93"></div></div></div>').join('')+'</div>'+(unknown?'<p class="sub" style="margin-top:14px">'+unknown+' Trainings ohne eindeutige Muskelgruppe wurden nicht zugeordnet.</p>':'')+'</section>';
+}
+document.addEventListener('click',e=>{const b=e.target.closest('button[data-fp-muscle-days]');if(!b)return;e.preventDefault();e.stopImmediatePropagation();fpMuscleDays=Number(b.dataset.fpMuscleDays)||30;render();},true);
 const fpOldProgress=progress;
 progress=function(){
  const base=fpOldProgress();
@@ -1257,7 +1275,7 @@ progress=function(){
  '<div style="min-width:0;border:1px solid #d4e5df;border-radius:14px;padding:12px 8px"><div class="sub" style="font-size:12px">Vergleich</div><div class="value" style="font-size:19px;overflow-wrap:anywhere">'+(delta>0?'+':'')+delta+' Min</div></div></div>'+
  '<div style="display:flex;align-items:end;gap:5px;min-height:140px">'+lines+'</div>'+
  '<p class="sub" id="fp-chart-detail" role="status" aria-live="polite" style="margin-top:10px;font-weight:700">Tippe auf einen Balken für die genauen Werte.</p>'+ '<p class="sub" style="font-size:11px;margin-top:12px">Nachträglich abgehakte Trainings sind in dieser Zeitübersicht enthalten. Wiederholungen und Gewichte werden nur ausgewertet, wenn abgeschlossene Sätze gespeichert wurden.</p></section>';
- return base.replace(/(<div class="card")/,summary+'$1');
+ return base.replace(/(<div class="card")/,summary+fpMuscleStats()+'$1');
 };
 document.addEventListener('click',e=>{const bar=e.target.closest('button[data-fp-chart-bar]');if(!bar)return;const output=document.getElementById('fp-chart-detail');if(output)output.textContent=bar.getAttribute('aria-label')||'';document.querySelectorAll('[data-fp-chart-bar]').forEach(b=>b.style.outline=b===bar?'2px solid #0c9f88':'none');},true);
 document.addEventListener('click',e=>{
