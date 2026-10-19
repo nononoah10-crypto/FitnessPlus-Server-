@@ -357,7 +357,7 @@ async function copyFriendLink(){
  prompt('Link auswählen und kopieren:',link);
 }
 function friendLinkPanel(){
- return `<div class="fpFriendsEmbedded"><h3 style="margin:18px 0 8px">👥 Freunde & Duelle</h3><p class="sub">Freundes-Code, Freundschaftsanfragen und 7-Tage-Duelle – alles hier im Level-Bereich.</p><iframe id="fpFriendsFrame" src="/freunde.html?embedded=1" title="Freunde und Duelle" loading="lazy" style="width:100%;height:1250px;min-height:620px;border:0;display:block;background:transparent" scrolling="no"></iframe></div>`;
+ return `<div class="fpFriendsEmbedded"><h3 style="margin:18px 0 8px">👥 Online-Freunde & ⚔️ Freunde-Duelle</h3><iframe id="fpFriendsFrame" src="/freunde.html?embedded=1" title="Online-Freunde und Freunde-Duelle" loading="lazy" style="width:100%;height:1250px;min-height:620px;border:0;display:block;background:transparent" scrolling="no"></iframe></div>`;
 }
 function oldFriendLinkPanelUnused(){
  const configured=safe(String(localStorage.getItem('fitnessplus-friend-base')||''));
@@ -384,13 +384,9 @@ function acceptFriendFromLink(){
 }
 function levelsScreen(){
  const lv=levelNumber();const part=s.levelExercises%3;
- const players=[{name:s.profile.nickname||'Ich',exercises:s.levelExercises,self:true},...s.friends]
- .sort((a,b)=>Number(b.exercises)-Number(a.exercises)||a.name.localeCompare(b.name,'de'));
  return hdr('DEIN FITNESSPLUS LEVEL','Trainieren. Aufsteigen.')+
  `<div class="card levelHero"><div class="levelMedal">🏆</div><div class="levelBig">LEVEL ${lv}</div><p class="sub">${s.levelExercises} abgeschlossene Übungen insgesamt</p><div class="levelTrack"><div style="width:${part/3*100}%"></div></div><b>${part} / 3 Übungen bis zum nächsten Level</b><p class="sub">Jede komplett abgehakte Übung zählt einmal pro Training. Die Trainingszeit-Truhe hat eigene Regeln.</p></div>`+
- `<div class="card"><div class="row"><b>👥 Freunde-Rangliste</b><button class="btn" data-action="openLevels">Zur Level-Übersicht →</button></div><div class="sub">${players.length} Teilnehmer</div><div class="levelRanking">${players.map((x,i)=>`<div class="levelRow ${x.self?'mine':''}"><span class="rankNo">${i+1}.</span><span class="grow"><b>${safe(x.name)}${x.self?' (du)':''}</b><small>${Number(x.exercises)} Übungen</small></span><strong>Lv. ${levelNumber(Number(x.exercises))}</strong>${x.self?'':`<button class="btn" data-removefriend="${safe(x.name)}" aria-label="Freund entfernen">×</button>`}</div>`).join('')}</div></div>`+
- friendLinkPanel()+
- `<p class="sub">Hinweis: Die Rangliste basiert auf selbst geteilten Codes und ist kein verifizierter Wettkampf. Für aktuelle Werte braucht es einen neuen Code.</p>`;
+ friendLinkPanel();
 }
 function friendsScreen(){
  const friends=[...s.friends].sort((a,b)=>Number(b.exercises)-Number(a.exercises)||a.name.localeCompare(b.name,'de'));
@@ -403,7 +399,7 @@ function friendsScreen(){
 const homeBeforeLevels=home;
 home=function(){return homeBeforeLevels()+`<div class="card"><div class="row"><div><b>🏆 Level ${levelNumber()}</b><div class="sub">${s.levelExercises} Übungen geschafft · Noch ${3-s.levelExercises%3} bis zum nächsten Level</div></div><button class="btn" data-action="openLevels">Level →</button></div><div class="levelTrack"><div style="width:${s.levelExercises%3/3*100}%"></div></div></div>`};
 const progressBeforeLevels=progress;
-progress=function(){if(s.view==='friends')return friendsScreen();if(s.view==='levels')return levelsScreen();return `<div class="card"><div class="row"><div><b>🏆 Level ${levelNumber()}</b><div class="sub">Vergleiche dich mit deinen Freunden</div></div><button class="btn" data-action="openLevels">Level & Freunde →</button></div></div>`+progressBeforeLevels()};
+progress=function(){if(s.view==='friends'||s.view==='levels')return levelsScreen();return `<div class="card"><div class="row"><div><b>🏆 Level ${levelNumber()}</b><div class="sub">Dein Fortschritt und deine Online-Freunde</div></div><button class="btn" data-action="openLevels">Level & Duelle →</button></div></div>`+progressBeforeLevels()};
 // Capture these new actions before the original click handler.
 document.addEventListener('click',e=>{
  const b=e.target.closest('button');if(!b)return;
