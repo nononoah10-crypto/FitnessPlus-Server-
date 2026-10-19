@@ -56,6 +56,21 @@ function broadcastSummary(g,userId){
   eligible,claimed};
 }
 
+
+// Freunde-Duelle: getrennte Wettbewerbsdaten, keine Änderung an XP oder Diamanten.
+db.exec(`CREATE TABLE IF NOT EXISTS friend_duels (
+ id TEXT PRIMARY KEY,
+ challenger_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+ opponent_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+ status TEXT NOT NULL CHECK(status IN ('pending','accepted','declined')),
+ created_at INTEGER NOT NULL,
+ starts_at INTEGER,
+ ends_at INTEGER,
+ CHECK(challenger_id<>opponent_id)
+);
+CREATE INDEX IF NOT EXISTS idx_friend_duels_challenger ON friend_duels(challenger_id,created_at);
+CREATE INDEX IF NOT EXISTS idx_friend_duels_opponent ON friend_duels(opponent_id,created_at);`);
+
 // Private 1:1 friend chat. Messages are stored on the server, not in browser storage.
 // Only participants with an active mutual friendship can access the conversation.
 db.exec(`CREATE TABLE IF NOT EXISTS friend_messages (
@@ -645,6 +660,57 @@ async function handler(req,res){try{
    db.exec('COMMIT');return json(res,200,{ok:true});
   }catch(err){db.exec('ROLLBACK');throw err}
  }
+
+ // 7-Tage-Duelle: Punkte sind serverseitig bestätigte Übungsabschlüsse.
+ // Der Zeitraum beginnt erst bei Annahme, damit beide fair starten.
+ if(req.method==='GET'&&url.pathname==='/api/duels'){
+  const rows=all(`SELECT d.*, c.username challenger_name,o.username opponent_name
+    FROM friend_duels d JOIN users c ON c.id=d.challenger_id
+    JOIN users o ON o.id=d.opponent_id
+    WHERE d.challenger_id=? OR d.opponent_id=?
+    ORDER BY d.created_at DESC LIMIT 100`,u.id,u.id);
+  const now=Date.now();
+  const duels=rows.map(d=>{
+   const active=d.status==='accepted'&&now<d.ends_at;
+   const finished=d.status==='accepted'&&!active;
+   const points=id=>d.starts_at==null?0:q(`SELECT COUNT(*) AS n FROM game_exercises e
+      JOIN game_runs r ON r.id=e.run_id
+      WHERE r.user_id=? AND e.awarded_at>=? AND e.awarded_at<?`,
+      id,d.starts_at,Math.min(now,d.ends_at)).n;
+   const challengerPoints=points(d.challenger_id),opponentPoints=points(d.opponent_id);
+   return {id:d.id,challengerId:d.challenger_id,opponentId:d.opponent_id,
+    challengerName:d.challenger_name,opponentName:d.opponent_name,
+    status:d.status==='accepted'?(active?'active':'finished'):d.status,
+    createdAt:d.created_at,startsAt:d.starts_at,endsAt:d.ends_at,
+    challengerPoints,opponentPoints,
+    winnerId:finished?(challengerPoints===opponentPoints?null:challengerPoints>opponentPoints?d.challenger_id:d.opponent_id):null};
+  });
+  return json(res,200,{duels,me:u.id});
+ }
+ if(req.method==='POST'&&url.pathname==='/api/duels/challenge'){
+  const opponentId=String(data.opponentId||'');
+  if(!opponentId||opponentId===u.id)return error(res,400,'Ungültiger Gegner');
+  const [a,b]=[u.id,opponentId].sort();
+  if(!q('SELECT 1 FROM friendship WHERE a=? AND b=?',a,b))return error(res,403,'Nur bestätigte Freunde können herausgefordert werden');
+  if(q(`SELECT 1 FROM friend_duels WHERE
+    ((challenger_id=? AND opponent_id=?) OR (challenger_id=? AND opponent_id=?))
+    AND (status='pending' OR (status='accepted' AND ends_at>?))`,u.id,opponentId,opponentId,u.id,Date.now()))
+   return error(res,409,'Zwischen euch läuft bereits ein Duell oder eine Einladung');
+  const id=uid();
+  run('INSERT INTO friend_duels(id,challenger_id,opponent_id,status,created_at) VALUES(?,?,?,?,?)',id,u.id,opponentId,'pending',Date.now());
+  return json(res,200,{ok:true,id});
+ }
+ if(req.method==='POST'&&url.pathname==='/api/duels/respond'){
+  const id=String(data.id||''),decision=String(data.decision||'');
+  if(!['accept','decline'].includes(decision))return error(res,400,'Ungültige Entscheidung');
+  const now=Date.now();
+  const update=decision==='accept'
+   ?run("UPDATE friend_duels SET status='accepted',starts_at=?,ends_at=? WHERE id=? AND opponent_id=? AND status='pending'",now,now+7*86400000,id,u.id)
+   :run("UPDATE friend_duels SET status='declined' WHERE id=? AND opponent_id=? AND status='pending'",id,u.id);
+  if(!update.changes)return error(res,404,'Offene Einladung nicht gefunden');
+  return json(res,200,{ok:true});
+ }
+
  if(req.method==='GET'&&url.pathname==='/api/friends'){
   // Nur authentifizierte, bestaetigte Online-Freundschaften sind sichtbar.
   // Rekorde werden aus tatsaechlich auf dem Server abgeholten Tagesbelohnungen
