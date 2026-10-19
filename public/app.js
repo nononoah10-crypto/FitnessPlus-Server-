@@ -357,7 +357,7 @@ async function copyFriendLink(){
  prompt('Link auswählen und kopieren:',link);
 }
 function friendLinkPanel(){
- return `<div class="card"><b>👥 Online-Freunde per QR-Code</b><p class="sub">Dein dauerhafter Freundes-Code, QR-Code und Freundschaftsanfragen.</p><a class="primary" href="/freunde.html" style="display:block;text-align:center;text-decoration:none">QR-Code & Freundschaftsanfragen öffnen →</a></div>`;
+ return `<div class="fpFriendsEmbedded"><h3 style="margin:18px 0 8px">👥 Freunde & Duelle</h3><p class="sub">Freundes-Code, Freundschaftsanfragen und 7-Tage-Duelle – alles hier im Level-Bereich.</p><iframe id="fpFriendsFrame" src="/freunde.html?embedded=1" title="Freunde und Duelle" loading="lazy" style="width:100%;height:1250px;min-height:620px;border:0;display:block;background:transparent" scrolling="no"></iframe></div>`;
 }
 function oldFriendLinkPanelUnused(){
  const configured=safe(String(localStorage.getItem('fitnessplus-friend-base')||''));
@@ -388,7 +388,7 @@ function levelsScreen(){
  .sort((a,b)=>Number(b.exercises)-Number(a.exercises)||a.name.localeCompare(b.name,'de'));
  return hdr('DEIN FITNESSPLUS LEVEL','Trainieren. Aufsteigen.')+
  `<div class="card levelHero"><div class="levelMedal">🏆</div><div class="levelBig">LEVEL ${lv}</div><p class="sub">${s.levelExercises} abgeschlossene Übungen insgesamt</p><div class="levelTrack"><div style="width:${part/3*100}%"></div></div><b>${part} / 3 Übungen bis zum nächsten Level</b><p class="sub">Jede komplett abgehakte Übung zählt einmal pro Training. Die Trainingszeit-Truhe hat eigene Regeln.</p></div>`+
- `<div class="card"><div class="row"><b>👥 Freunde-Rangliste</b><button class="btn" data-action="openFriends">Freundesliste →</button></div><div class="sub">${players.length} Teilnehmer</div><div class="levelRanking">${players.map((x,i)=>`<div class="levelRow ${x.self?'mine':''}"><span class="rankNo">${i+1}.</span><span class="grow"><b>${safe(x.name)}${x.self?' (du)':''}</b><small>${Number(x.exercises)} Übungen</small></span><strong>Lv. ${levelNumber(Number(x.exercises))}</strong>${x.self?'':`<button class="btn" data-removefriend="${safe(x.name)}" aria-label="Freund entfernen">×</button>`}</div>`).join('')}</div></div>`+
+ `<div class="card"><div class="row"><b>👥 Freunde-Rangliste</b><button class="btn" data-action="openLevels">Zur Level-Übersicht →</button></div><div class="sub">${players.length} Teilnehmer</div><div class="levelRanking">${players.map((x,i)=>`<div class="levelRow ${x.self?'mine':''}"><span class="rankNo">${i+1}.</span><span class="grow"><b>${safe(x.name)}${x.self?' (du)':''}</b><small>${Number(x.exercises)} Übungen</small></span><strong>Lv. ${levelNumber(Number(x.exercises))}</strong>${x.self?'':`<button class="btn" data-removefriend="${safe(x.name)}" aria-label="Freund entfernen">×</button>`}</div>`).join('')}</div></div>`+
  friendLinkPanel()+
  `<p class="sub">Hinweis: Die Rangliste basiert auf selbst geteilten Codes und ist kein verifizierter Wettkampf. Für aktuelle Werte braucht es einen neuen Code.</p>`;
 }
@@ -401,13 +401,13 @@ function friendsScreen(){
  `<p class="sub">Die Liste bleibt auf deinem Gerät gespeichert. Für einen aktuellen Levelstand öffnen Freunde einfach einen neuen Einladungslink.</p>`;
 }
 const homeBeforeLevels=home;
-home=function(){return homeBeforeLevels()+`<div class="card"><div class="row"><div><b>🏆 Level ${levelNumber()}</b><div class="sub">${s.levelExercises} Übungen geschafft · Noch ${3-s.levelExercises%3} bis zum nächsten Level</div></div><button class="btn" data-action="openFriends">Freunde →</button></div><div class="levelTrack"><div style="width:${s.levelExercises%3/3*100}%"></div></div></div>`};
+home=function(){return homeBeforeLevels()+`<div class="card"><div class="row"><div><b>🏆 Level ${levelNumber()}</b><div class="sub">${s.levelExercises} Übungen geschafft · Noch ${3-s.levelExercises%3} bis zum nächsten Level</div></div><button class="btn" data-action="openLevels">Level →</button></div><div class="levelTrack"><div style="width:${s.levelExercises%3/3*100}%"></div></div></div>`};
 const progressBeforeLevels=progress;
-progress=function(){if(s.view==='friends')return friendsScreen();if(s.view==='levels')return levelsScreen();return `<div class="card"><div class="row"><div><b>🏆 Level ${levelNumber()}</b><div class="sub">Vergleiche dich mit deinen Freunden</div></div><button class="btn" data-action="openFriends">Freundesliste →</button></div></div>`+progressBeforeLevels()};
+progress=function(){if(s.view==='friends')return friendsScreen();if(s.view==='levels')return levelsScreen();return `<div class="card"><div class="row"><div><b>🏆 Level ${levelNumber()}</b><div class="sub">Vergleiche dich mit deinen Freunden</div></div><button class="btn" data-action="openLevels">Level & Freunde →</button></div></div>`+progressBeforeLevels()};
 // Capture these new actions before the original click handler.
 document.addEventListener('click',e=>{
  const b=e.target.closest('button');if(!b)return;
- if(b.dataset.action==='openFriends'){e.preventDefault();e.stopImmediatePropagation();s.view='friends';s.tab='progress';render();return}
+ if(b.dataset.action==='openFriends'){e.preventDefault();e.stopImmediatePropagation();s.view='levels';s.tab='progress';render();return}
  if(b.dataset.action==='openLevels'){
   e.preventDefault();e.stopImmediatePropagation();s.view='levels';s.tab='progress';render();return;
  }
@@ -424,6 +424,19 @@ doExport=function(){
 };
 // Latest import hook keeps the new level data in sync with other import handlers.
 $('#importFile').addEventListener('change',async e=>{const f=e.target.files?.[0];if(!f)return;try{const p=JSON.parse(await f.text());if(p.app!=='FitnessPlus'||!p.data)return;const x=p.data;s.levelExercises=Math.max(0,Number(x.levelExercises)||0);s.levelExerciseClaims=x.levelExerciseClaims&&typeof x.levelExerciseClaims==='object'?x.levelExerciseClaims:{};s.friends=Array.isArray(x.friends)?x.friends.filter(y=>y&&typeof y.name==='string'&&Number.isFinite(Number(y.exercises))).slice(0,100):[];save();render()}catch(_){}},true);
+
+// Resize the online friends pane inside Verlauf > Level without inner scrollbars.
+window.addEventListener('message',event=>{
+ if(event.origin!==location.origin||!event.data||event.data.type!=='fp-friends-height')return;
+ const frame=document.getElementById('fpFriendsFrame');
+ if(frame&&event.source===frame.contentWindow){
+  const height=Math.max(620,Math.min(8000,Number(event.data.height)||1250));
+  frame.style.height=height+'px';
+ }
+});
+// The legacy friends view redirects to the one consolidated level view.
+const fpLevelIntegratedProgress=progress;
+progress=function(){if(s.view==='friends')s.view='levels';return fpLevelIntegratedProgress()};
 
 // FitnessPlus 5.7: exclusively level boosters in shop. Previous cosmetic purchases are retained in backup but no longer sold.
 const levelBoosters=[
