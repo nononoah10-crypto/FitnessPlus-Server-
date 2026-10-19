@@ -720,8 +720,7 @@ function fp70Encode(data){const b=new TextEncoder().encode(JSON.stringify(data))
 function fp70Decode(value){let t=String(value||'').replace(/-/g,'+').replace(/_/g,'/');t+='='.repeat((4-t.length%4)%4);return JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(t),x=>x.charCodeAt(0))))}
 function fp70FriendlyCode(){const key=fp70Label(localStorage.getItem('fp70-friend-label')||'FITNESS');const name=String(s.profile.nickname||'FitnessPlus-Freund').trim().slice(0,32);return 'FPF7-'+key+'-'+fp70Encode({v:1,name,exercises:Math.floor(Number(s.levelExercises)||0)})}
 function fp70ImportFriend(code){const m=String(code||'').trim().match(/^FPF7-([A-Z0-9]{3,18})-([A-Za-z0-9_-]+)$/i);if(!m)throw Error('Ungültiger Freundes-Code.');const d=fp70Decode(m[2]);if(d.v!==1||typeof d.name!=='string'||!d.name.trim()||d.name.length>32||!Number.isSafeInteger(d.exercises)||d.exercises<0||d.exercises>999999)throw Error('Ungültige Freundesdaten.');if(d.name.trim()===String(s.profile.nickname||'FitnessPlus-Freund').trim())throw Error('Das ist dein eigenes Profil.');s.friends=s.friends.filter(x=>x.name!==d.name);s.friends.push({name:d.name,exercises:d.exercises});save();s.view='friends';s.tab='progress';render();toast('Freund '+d.name+' hinzugefügt!')}
-const fp70OldFriendPanel=friendLinkPanel;
-friendLinkPanel=function(){return `<div class="card"><b>👥 Freunde per Code hinzufügen</b><p class="sub">Wähle einen eigenen Code-Namen und teile den vollständigen Freundes-Code. Ohne Server sind die Profildaten im Code enthalten.</p><label class="field">Mein Code-Name</label><input class="input" id="fp70FriendLabel" maxlength="18" value="${safe(localStorage.getItem('fp70-friend-label')||'FITNESS')}" placeholder="z. B. MAX123"><button class="primary" data-fp70friendmake="1">Meinen Code kopieren</button><label class="field">Freundes-Code eingeben</label><textarea class="input" id="fp70FriendInput" rows="3" placeholder="FPF7-MAX123-..."></textarea><button class="primary" data-fp70friendadd="1">Freund hinzufügen</button></div>`};
+// Legacy offline friend-code UI intentionally disabled. Online friends and duels use friendLinkPanel() above.
 function fp70GiftCode(g,label,type){return 'FPG7-'+fp70Label(label)+'-'+fp70Encode({v:1,type,id:g.id,to:g.to,from:g.from,amount:g.amount||0,booster:g.booster||'',created:g.created})}
 function fp70ReadGift(text){const m=String(text||'').trim().match(/^FPG7-([A-Z0-9]{3,18})-([A-Za-z0-9_-]+)$/i);if(!m)throw Error('Ungültiger Geschenk-Code.');const g=fp70Decode(m[2]);if(g.v!==1||!['diamonds','booster'].includes(g.type)||typeof g.id!=='string'||g.id.length<8||g.id.length>100||typeof g.to!=='string'||g.to.length>32||typeof g.from!=='string'||g.from.length>32)throw Error('Ungültiges Geschenk.');if(g.type==='diamonds'&&(!Number.isInteger(g.amount)||g.amount<1||g.amount>100000))throw Error('Ungültiger Betrag.');if(g.type==='booster'&&!levelBoosters.some(x=>x.id===g.booster))throw Error('Unbekannter Booster.');return g;}
 const fp70OldGiftScreen=giftScreen;
@@ -1313,5 +1312,11 @@ document.addEventListener('click',e=>{
   render();
  }
 },true);
+
+// Enforce the modern online friends panel after all legacy feature extensions.
+// Keep old gift-code features intact, but never revive offline FPF7 friends UI.
+friendLinkPanel=function(){
+ return `<div class="fpFriendsEmbedded"><h3 style="margin:18px 0 8px">👥 Online-Freunde & ⚔️ Freunde-Duelle</h3><iframe id="fpFriendsFrame" src="/freunde.html?embedded=1" title="Online-Freunde und Freunde-Duelle" loading="lazy" style="width:100%;height:1250px;min-height:620px;border:0;display:block;background:transparent" scrolling="no"></iframe></div>`;
+};
 
 })();
