@@ -1,0 +1,48 @@
+/* FitnessPlus Modern — purely visual layer, no changes to app logic or Apple icon. */
+:root{--fp-accent:#079f7e;--fp-accent-dark:#08705f;--fp-ink:#18352f;--fp-muted:#729088;--fp-radius:25px}
+html:not([data-theme="dark"]){background:#eef8f3}
+html:not([data-theme="dark"]) body{background:linear-gradient(165deg,#e8f8f1 0%,#f6fbf8 46%,#edf8f4 100%);color:var(--fp-ink)}
+html:not([data-theme="dark"]) .app{background:transparent;color:var(--fp-ink)}
+.app{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display",Arial,sans-serif}
+.top{padding-top:18px;padding-bottom:22px}
+.brand{gap:12px}
+.brand strong{font-weight:850;letter-spacing:-.65px}
+.logo{border-radius:15px;box-shadow:0 8px 22px #00896d1c}
+.title{font-weight:850;letter-spacing:-1.1px;line-height:1.12}
+.section{font-weight:800;letter-spacing:-.25px}
+html:not([data-theme="dark"]) .card{background:#ffffffed;border:1px solid #d9ebe3;box-shadow:0 10px 28px #164c3b0b,0 2px 5px #164c3b05}
+.card{border-radius:var(--fp-radius);padding:20px;margin-bottom:16px}
+.card b{letter-spacing:-.2px}
+html:not([data-theme="dark"]) .sub,html:not([data-theme="dark"]) .micro,html:not([data-theme="dark"]) .eyebrow,html:not([data-theme="dark"]) .muted{color:var(--fp-muted)}
+.sub{line-height:1.56}
+button,.btn,.chip,.primary{transition:background .18s ease,transform .16s ease,box-shadow .18s ease}
+button:active{transform:scale(.985)}
+.primary{border-radius:18px;background:linear-gradient(115deg,#0bbf95 0%,#07846e 100%);color:#fff;font-weight:800;padding:16px 18px;box-shadow:0 10px 22px #08a78322}
+html:not([data-theme="dark"]) .btn{background:#f4faf7;color:#1b5347;border:1px solid #d5e9e0;border-radius:15px;font-weight:750}
+html:not([data-theme="dark"]) .outline{background:#fff;border:1px solid #cfdfd8;color:#234c42}
+html:not([data-theme="dark"]) .chip{background:#e9f4ef;color:#376459;border-radius:999px}
+html:not([data-theme="dark"]) .chip.active{background:linear-gradient(110deg,#10b98c,#087f68);color:white;box-shadow:0 6px 14px #049e7826}
+html:not([data-theme="dark"]) .metric{background:#f1f9f5;border:1px solid #e2f0e9}
+.metric{border-radius:17px}
+html:not([data-theme="dark"]) .input{background:#fbfefc;border:1px solid #d2e5dc;border-radius:17px;color:#193f35}
+.input{padding:14px}
+html:not([data-theme="dark"]) .item,html:not([data-theme="dark"]) .exercise{border-color:#e5f0ea}
+.symbol{border-radius:17px}
+html:not([data-theme="dark"]) .day{background:#f0f8f4;color:#3b5e55;border-radius:13px}
+html:not([data-theme="dark"]) .day.selected{background:linear-gradient(120deg,#0abd90,#0a8a70);color:white;box-shadow:0 5px 12px #06916b24}
+html:not([data-theme="dark"]) .day.done:after{color:#08b887}
+html:not([data-theme="dark"]) .tabs{background:#fffffff0;border:1px solid #daebe2;border-bottom:0;border-radius:28px 28px 0 0;box-shadow:0 -9px 32px #12402d0a;backdrop-filter:blur(22px);-webkit-backdrop-filter:blur(22px)}
+.tabs{padding-top:14px}
+html:not([data-theme="dark"]) .tab{color:#8ba89c}
+html:not([data-theme="dark"]) .tab.active{color:#008c73}
+.tab{font-weight:800}
+html:not([data-theme="dark"]) .bar{background:linear-gradient(180deg,#18c99a,#07876c)}
+html:not([data-theme="dark"]) .bartrack{background:#eaf5ef}
+html:not([data-theme="dark"]) .progressFill{background:linear-gradient(90deg,#0cc595,#077f6c)}
+html:not([data-theme="dark"]) .setcheck.checked{background:#0aaf87}
+html:not([data-theme="dark"]) input[type=range],html:not([data-theme="dark"]) input[type=checkbox]{accent-color:#089e7d}
+button:focus-visible,input:focus-visible,select:focus-visible{outline-color:#0bb68c}
+@media (prefers-reduced-motion:reduce){button,.btn,.chip,.primary{transition:none}}
+/* Dark mode stays functional; accent only */
+html[data-theme="dark"] .tab.active{color:#41d5aa}
+html[data-theme="dark"] .primary{background:linear-gradient(110deg,#09ac85,#057c67);color:#fff}
